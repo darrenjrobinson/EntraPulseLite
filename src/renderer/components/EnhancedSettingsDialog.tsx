@@ -68,7 +68,7 @@ const AutoUpdateSettings: React.FC = () => {
         
         const version = await window.electronAPI?.updater?.getCurrentVersion() || 
                         await window.electronAPI?.app?.getVersion?.();
-        setCurrentVersion(version || '1.0.0-beta.3');
+        setCurrentVersion(version || '1.0.0');
       } catch (error) {
         console.error('Failed to load auto-update preference:', error);
       }

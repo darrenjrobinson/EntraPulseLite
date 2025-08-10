@@ -23,7 +23,7 @@ export function getAppVersion(): string {
   } catch (error) {
     console.warn('Failed to get app version:', error);
     // Fallback version
-    return '1.0.0-beta.3';
+    return '1.0.0';
   }
 }
 

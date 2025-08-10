@@ -25,7 +25,7 @@ function getAppVersion(): string {
     return packageJson.version;
   } catch (error) {
     console.error('Failed to read version from package.json:', error);
-    return '1.0.0-beta.3'; // Fallback version
+    return '1.0.0'; // Fallback version
   }
 }
 
@@ -1876,7 +1876,7 @@ class EntraPulseLiteApp {
         return this.autoUpdaterService.getCurrentVersion();
       } catch (error) {
         console.error('Get current version failed:', error);
-        return '1.0.0-beta.3';
+        return '1.0.0';
       }
     });
 

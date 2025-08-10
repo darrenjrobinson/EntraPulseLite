@@ -268,7 +268,7 @@ export class AutoUpdaterService {
 
   // Get current version
   getCurrentVersion(): string {
-    return autoUpdater.currentVersion?.version || '1.0.0-beta.3';
+    return autoUpdater.currentVersion?.version || '1.0.0';
   }
 
   // Check if update is pending
