@@ -997,7 +997,7 @@ export const EnhancedSettingsDialog: React.FC<EnhancedSettingsDialogProps> = ({
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
-      <DialogTitle>LLM Settings</DialogTitle>
+      <DialogTitle>EntraPulse Settings</DialogTitle>
       <DialogContent>
         <Box sx={{ mt: 2 }}>
           {/* Entra Application Settings */}
@@ -2105,14 +2105,16 @@ const EntraConfigForm: React.FC<EntraConfigFormProps> = ({ config, onSave, onCle
                             </span>
                           ) : tenantInfo.tenantId ? (
                             <span>
-                              {tenantInfo.tenantDisplayName && tenantInfo.tenantDisplayName !== tenantInfo.tenantId ? (
-                                <strong>{tenantInfo.tenantDisplayName}</strong>
+                              {tenantInfo.tenantDisplayName ? (
+                                <>
+                                  <strong>{tenantInfo.tenantDisplayName}</strong>
+                                  <span style={{ marginLeft: 8, color: '#666', fontSize: '0.9em' }}>
+                                    ({tenantInfo.tenantId})
+                                  </span>
+                                </>
                               ) : (
                                 tenantInfo.tenantId
                               )}
-                              <span style={{ marginLeft: 8, color: '#666', fontSize: '0.9em' }}>
-                                ({tenantInfo.tenantId})
-                              </span>
                             </span>
                           ) : (
 
@@ -2243,14 +2245,16 @@ const EntraConfigForm: React.FC<EntraConfigFormProps> = ({ config, onSave, onCle
                               </span>
                             ) : tenantInfo.tenantId ? (
                               <span>
-                                {tenantInfo.tenantDisplayName && tenantInfo.tenantDisplayName !== tenantInfo.tenantId ? (
-                                  <strong>{tenantInfo.tenantDisplayName}</strong>
+                                {tenantInfo.tenantDisplayName ? (
+                                  <>
+                                    <strong>{tenantInfo.tenantDisplayName}</strong>
+                                    <span style={{ marginLeft: 8, color: '#666', fontSize: '0.9em' }}>
+                                      ({tenantInfo.tenantId})
+                                    </span>
+                                  </>
                                 ) : (
                                   tenantInfo.tenantId
                                 )}
-                                <span style={{ marginLeft: 8, color: '#666', fontSize: '0.9em' }}>
-                                  ({tenantInfo.tenantId})
-                                </span>
                               </span>
                             ) : (
                               'Not authenticated'

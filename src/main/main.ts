@@ -2157,74 +2157,39 @@ class EntraPulseLiteApp {
           
           // Primary: Try to get tenant display name from Graph API /organization endpoint
           try {
-            // Use the Lokka MCP to get organization details
-            // Important: Call without any filter - let it return the organization for the authenticated tenant
-            if (this.mcpClient) {
-              console.log('🔍 Calling /organization endpoint without filters for tenant:', payload.tid);
-              
-              const orgInfo = await this.mcpClient.callTool('external-lokka', 'microsoft_graph_query', {
-                apiType: 'graph',
-                path: '/organization',
-                method: 'get'
-                // No queryParams at all - let it return the org for the authenticated tenant
-              });
-              
-              console.log('🔍 Raw organization info response:', orgInfo);
-              
-              let parsedContent;
-              
-              // Handle different response formats from MCP
-              if (orgInfo?.content) {
-                if (Array.isArray(orgInfo.content) && orgInfo.content.length > 0) {
-                  // Handle array format like [{type: 'text', text: 'Result for graph API...'}]
-                  const firstContent = orgInfo.content[0];
-                  if (firstContent?.type === 'text' && firstContent?.text) {
-                    try {
-                      // Extract JSON from text response like "Result for graph API (v1.0) - get /organization:\n\n{...}"
-                      const textContent = firstContent.text;
-                      const jsonStart = textContent.indexOf('{');
-                      if (jsonStart !== -1) {
-                        const jsonString = textContent.substring(jsonStart);
-                        parsedContent = JSON.parse(jsonString);
-                        console.log('✅ Successfully extracted JSON from text response');
-                      } else {
-                        console.warn('Could not find JSON start in text response');
-                      }
-                    } catch (parseError) {
-                      console.warn('Could not parse JSON from text response:', parseError);
-                    }
-                  }
-                } else if (typeof orgInfo.content === 'string') {
-                  try {
-                    parsedContent = JSON.parse(orgInfo.content);
-                  } catch (parseError) {
-                    console.warn('Could not parse organization info string:', parseError);
-                  }
-                } else if (typeof orgInfo.content === 'object') {
-                  parsedContent = orgInfo.content;
-                }
-              } else if (orgInfo && typeof orgInfo === 'object') {
-                // Sometimes the response might be the data directly
-                parsedContent = orgInfo;
+            console.log('🔍 Making direct Graph API call to /organization endpoint for tenant:', payload.tid);
+            
+            // Make direct Graph API call using the access token
+            const response = await fetch('https://graph.microsoft.com/v1.0/organization', {
+              method: 'GET',
+              headers: {
+                'Authorization': `Bearer ${token.accessToken}`,
+                'Content-Type': 'application/json'
               }
+            });
+            
+            if (response.ok) {
+              const orgData = await response.json();
+              console.log('🔍 Direct Graph API organization response:', orgData);
               
-              console.log('🔍 Parsed organization content:', parsedContent);
-              
-              if (parsedContent?.value && Array.isArray(parsedContent.value) && parsedContent.value.length > 0) {
-                const org = parsedContent.value[0];
-                console.log('🔍 Organization object:', org);
+              if (orgData?.value && Array.isArray(orgData.value) && orgData.value.length > 0) {
+                const org = orgData.value[0];
+                console.log('🔍 Organization object from direct API:', org);
                 if (org.displayName) {
                   tenantDisplayName = org.displayName;
-                  console.log('✅ Retrieved tenant display name from Graph API:', tenantDisplayName);
+                  console.log('✅ Retrieved tenant display name from direct Graph API:', tenantDisplayName);
                 } else {
                   console.warn('⚠️ Organization object found but no displayName property:', org);
                 }
               } else {
-                console.warn('⚠️ Unexpected organization response structure:', parsedContent);
+                console.warn('⚠️ Unexpected organization response structure from direct API:', orgData);
               }
+            } else {
+              const errorText = await response.text();
+              console.warn('❌ Direct Graph API organization call failed:', response.status, errorText);
             }
           } catch (graphError) {
-            console.warn('Could not retrieve organization info from Graph API:', graphError);
+            console.warn('Could not retrieve organization info from direct Graph API:', graphError);
           }
           
           // Secondary: Check for tenant_display_name claim in token (rare but valid)
