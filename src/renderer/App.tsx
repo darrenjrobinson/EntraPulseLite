@@ -1,5 +1,5 @@
 // Main App component for EntraPulse Lite
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Box, AppBar, Toolbar, Typography, IconButton, Switch, FormControlLabel, Tooltip } from '@mui/material';
 import { Settings as SettingsIcon, Brightness4, Brightness7, Info as InfoIcon } from '@mui/icons-material';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
@@ -101,8 +101,9 @@ const AppContent: React.FC<AppContentProps> = ({ settingsOpen, setSettingsOpen }
       };
     }
   }, []);
-  // Create dynamic theme based on mode
-  const theme = createTheme({
+  
+  // Create dynamic theme based on mode - use useMemo to make it reactive
+  const theme = useMemo(() => createTheme({
     palette: {
       mode: darkMode ? 'dark' : 'light',
       primary: {
@@ -114,12 +115,14 @@ const AppContent: React.FC<AppContentProps> = ({ settingsOpen, setSettingsOpen }
       background: {
         default: darkMode ? '#1e1e1e' : '#ffffff',
         paper: darkMode ? '#2d2d30' : '#f5f5f5',
-      },      // Add custom colors for better dark mode contrast
+      },
+      // Explicit text colors for both modes
+      text: {
+        primary: darkMode ? '#ffffff' : '#363636',
+        secondary: darkMode ? '#b3b3b3' : '#757575',
+      },
+      // Add custom colors for better dark mode contrast
       ...(darkMode && {
-        text: {
-          primary: '#ffffff',
-          secondary: '#b3b3b3',
-        },
         info: {
           main: '#87ceeb', // Light sky blue for better contrast in dark mode
         },
@@ -143,10 +146,12 @@ const AppContent: React.FC<AppContentProps> = ({ settingsOpen, setSettingsOpen }
             },
           },
         },
-      },      // Override any anchor tags
+      },      // Override Typography components to ensure proper text colors
       MuiTypography: {
         styleOverrides: {
           root: {
+            // Ensure text color follows theme
+            color: 'inherit',
             '& a': {
               color: darkMode ? '#87ceeb' : '#1976d2',
               textDecoration: 'none',
@@ -159,10 +164,14 @@ const AppContent: React.FC<AppContentProps> = ({ settingsOpen, setSettingsOpen }
               },
             },
           },
+          subtitle2: {
+            // Explicitly set subtitle2 text color
+            color: darkMode ? '#ffffff' : '#363636',
+          },
         },
       },
     },
-  });
+  }), [darkMode]); // Re-create theme when darkMode changes
 
   useEffect(() => {
     // Check authentication status on app load

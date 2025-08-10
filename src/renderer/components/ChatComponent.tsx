@@ -880,7 +880,7 @@ What would you like to explore?`,
               <Box sx={{ flex: 1, width: 'calc(100% - 56px)', maxWidth: 'calc(100% - 56px)' }}>                <ListItemText
                   primary={
                     <Box display="flex" alignItems="center" gap={1} mb={1}>
-                      <Typography variant="subtitle2">
+                      <Typography variant="subtitle2" color="text.primary">
                         {message.role === 'user' ? 'You' : 'EntraPulse Assistant'}
                       </Typography>
                       <Typography variant="caption" color="textSecondary">
