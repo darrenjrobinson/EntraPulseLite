@@ -1913,7 +1913,55 @@ class EntraPulseLiteApp {
       try {
         const { UnifiedLLMService } = require('../llm/UnifiedLLMService');
         const testService = new UnifiedLLMService(testConfig, this.mcpClient);
-        return await testService.isAvailable();
+        
+        // First check basic API availability
+        const isApiAvailable = await testService.isAvailable();
+        if (!isApiAvailable) {
+          console.log('LLM connection test failed: API not available');
+          return false;
+        }
+        
+        // For cloud providers, also validate the specific model
+        if (testConfig.provider === 'openai' || testConfig.provider === 'anthropic' || 
+            testConfig.provider === 'gemini' || testConfig.provider === 'azure-openai') {
+          
+          console.log(`Testing model "${testConfig.model}" for provider "${testConfig.provider}"`);
+          
+          // Get available models and check if the configured model is valid
+          try {
+            const availableModels = await testService.getAvailableModels();
+            
+            if (availableModels.length === 0) {
+              console.warn('LLM connection test: Could not fetch models from provider, but API is available');
+              // If we can't fetch models but API is available, consider it a successful connection
+              // The model validation warning will still show in the UI
+              return true;
+            }
+            
+            // Check if the configured model exists in available models
+            const modelExists = availableModels.some((model: string) => 
+              model === testConfig.model || 
+              model.toLowerCase() === testConfig.model.toLowerCase()
+            );
+            
+            if (!modelExists) {
+              console.log(`LLM connection test failed: Model "${testConfig.model}" not found in available models:`, availableModels.slice(0, 5));
+              return false;
+            }
+            
+            console.log(`LLM connection test successful: Model "${testConfig.model}" is available`);
+            return true;
+            
+          } catch (modelError) {
+            console.warn('LLM connection test: Error fetching models for validation:', modelError);
+            // If model fetching fails but API is available, consider it successful
+            // This handles cases where the model endpoint is different or has different permissions
+            return true;
+          }
+        }
+        
+        // For local providers, just return the API availability result
+        return isApiAvailable;
 
       } catch (error) {
         console.error('LLM connection test failed:', error);

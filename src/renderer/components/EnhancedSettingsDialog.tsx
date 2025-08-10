@@ -1590,6 +1590,14 @@ const CloudProviderCard: React.FC<CloudProviderCardProps> = ({
     setConnectionStatus('idle');
 
     try {
+      // Check if the current model is valid for the provider first
+      if (!isValidModelForProvider(localConfig.model, provider)) {
+        console.warn(`Test connection: Model "${localConfig.model}" is not valid for provider "${provider}"`);
+        setConnectionStatus('error');
+        // Optional: Could show a more specific error message about invalid model
+        return;
+      }
+
       const success = await onTestConnection(localConfig);
       setConnectionStatus(success ? 'success' : 'error');
     } catch (error) {
