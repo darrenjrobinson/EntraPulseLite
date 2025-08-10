@@ -2,6 +2,16 @@
 
 This directory contains development utilities, debugging tools, and standalone test scripts for EntraPulse Lite.
 
+## Release & Deployment Scripts
+
+### Release Management
+- **`create-release.ps1`** - Script to create and publish releases with proper tagging
+- **`cleanup-release.ps1`** - Emergency cleanup tool for problematic tags and releases
+- **`commit-version-update.ps1`** - Automated version update and commit script
+
+### Build & Release
+- **`generate-release-readme.js`** - Generate release documentation from templates
+
 ## Testing Scripts
 
 ### PowerShell Test Runners

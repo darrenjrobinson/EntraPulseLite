@@ -36,8 +36,8 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           
-          # Check if tag already exists
-          if git rev-parse "${{ github.event.inputs.version }}" >/dev/null 2>&1; then
+          # Check if tag already exists specifically (not branch)
+          if git rev-parse "refs/tags/${{ github.event.inputs.version }}" >/dev/null 2>&1; then
             echo "Tag ${{ github.event.inputs.version }} already exists. Deleting and recreating..."
             git tag -d "${{ github.event.inputs.version }}" || true
             git push origin :refs/tags/${{ github.event.inputs.version }} || true
@@ -48,7 +48,18 @@ jobs:
           
           # Create new tag
           git tag ${{ github.event.inputs.version }}
-          git push origin ${{ github.event.inputs.version }}
+          
+          # Push tag explicitly using full ref specification to avoid ambiguity
+          git push origin refs/tags/${{ github.event.inputs.version }}
+          
+          # Verify tag was pushed successfully
+          echo "Verifying tag ${{ github.event.inputs.version }} was pushed..."
+          if git ls-remote --tags origin | grep -q "refs/tags/${{ github.event.inputs.version }}"; then
+            echo "✅ Tag ${{ github.event.inputs.version }} successfully pushed to remote"
+          else
+            echo "❌ Tag ${{ github.event.inputs.version }} not found on remote"
+            exit 1
+          fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -60,7 +71,7 @@ jobs:
       - name: Check out Git repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.version }}
+          ref: refs/tags/${{ github.event.inputs.version }}
           fetch-depth: 0
 
       - name: Setup Windows build environment
