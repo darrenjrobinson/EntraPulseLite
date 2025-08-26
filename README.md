@@ -9,6 +9,7 @@ A free community desktop application that provides natural language querying of 
 - **Enhanced Graph Access**: Uses Microsoft Graph PowerShell client ID for comprehensive delegated permissions
 - **Custom Application Support**: Use your own Entra App Registration with delegated permissions for tailored access  
 - **Dual Authentication Modes**: Switch between Enhanced Graph Access and Custom Application modes at runtime
+- **Flexible Browser Authentication**: Choose between embedded browser or system browser for authentication compliance
 - **Work or School Microsoft Account**: Secure login with MSAL integration
 - **Natural Language Querying**: Chat with your Microsoft Graph data using plain English
 - **Multi-Provider LLM Integration**: Works with local (Ollama, LM Studio) and cloud (OpenAI, Anthropic, Google Gemini, Azure OpenAI) AI models
@@ -52,6 +53,7 @@ src/
 
 **Required:**
 - **Entra ID Work/School Account** - The application uses your delegated permissions to access Microsoft Graph
+- **Port 3000 Access** - Required when using System Browser authentication mode for CA compliance
 - **LLM Provider** (flexible configuration):
   - **Cloud LLM API Keys** (Recommended) - Reliable performance with Anthropic Claude Sonnet, Azure OpenAI GPT-4o, OpenAI, or Google Gemini
   - **Local LLM** (Ollama or LM Studio) - Privacy-focused processing with hardware-dependent performance
@@ -65,6 +67,10 @@ src/
 - **Custom Application Mode** - Use your own Entra App Registration with delegated permissions configured for your specific needs
 
 ![](./docs/EntraPulse%20Lite%20MSGraph%20Custom%20App%20Mode.png)
+
+**Browser Authentication Options:**
+- **Embedded Browser** (Default) - Authentication occurs within the application window for seamless user experience
+- **System Browser** (CA Compliance) - Authentication redirects to your default system browser for organizations requiring Certificate Authority (CA) compliance and advanced security policies (requires port 3000 access on localhost)
 
 
 ## 👨‍💻 For Developers & Contributors
@@ -159,6 +165,25 @@ EntraPulse Lite uses delegated permissions exclusively for secure, user-context 
 - Full control over which Microsoft Graph APIs are accessible
 
 You can switch between modes in Settings → Entra Application Settings.
+
+### Browser Authentication Modes
+EntraPulse Lite supports flexible authentication flows to accommodate different organizational security requirements:
+
+**Embedded Browser (Default):**
+- Authentication occurs within the application window
+- Seamless user experience with integrated login flow
+- Suitable for most standard authentication scenarios
+- Compatible with basic multi-factor authentication
+
+**System Browser (CA Compliance):**
+- Authentication redirects to your default system browser
+- Required for organizations with Certificate Authority (CA) compliance policies
+- Supports advanced security features like hardware security keys (FIDO2/WebAuthn)
+- Compatible with complex conditional access policies and device-based authentication
+- Recommended for enterprise environments with strict security requirements
+- **Network Requirement**: Port 3000 must be accessible on localhost for authentication redirect
+
+You can toggle between browser modes in Settings → Entra Application Settings → "Use System Browser".
 
 ### Multi-Provider LLM Support
 **Cloud Providers** (Recommended):

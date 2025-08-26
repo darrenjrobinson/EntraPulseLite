@@ -69,6 +69,7 @@ export interface EntraConfig {
   clientId: string;
   tenantId: string;
   useGraphPowerShell?: boolean; // Toggle for Microsoft Graph PowerShell client ID
+  useSystemBrowser?: boolean; // Toggle for system browser authentication instead of embedded browser
 }
 
 export interface LLMConfig {
@@ -150,7 +151,7 @@ export interface AppConfig {
 
 export interface ElectronAPI {
   auth: {
-    login: (useRedirectFlow?: boolean) => Promise<AuthToken>;
+    login: (useSystemBrowser?: boolean) => Promise<AuthToken>;
     logout: () => Promise<void>;
     getToken: () => Promise<AuthToken | null>;
     getCurrentUser: () => Promise<User | null>;

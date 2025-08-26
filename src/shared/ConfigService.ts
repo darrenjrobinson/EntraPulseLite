@@ -91,9 +91,9 @@ export class ConfigService {
     console.log(`[ConfigService] setAuthenticationContext called - Mode: ${mode}, UserInfo:`, userInfo ? 'Yes' : 'No');
     console.log(`[ConfigService] Previous context - Mode: ${this.currentAuthMode}, UserKey: ${this.currentUserKey}`);
     
-    // Only allow setting authentication context if authentication is verified
-    if (!this.isAuthenticationVerified) {
-      console.log(`[ConfigService] 🔒 Authentication context change blocked - authentication not verified`);
+    // Only allow setting authentication context if authentication is verified or service-level access
+    if (!this.isAuthenticationVerified && !this.isServiceLevelAccess) {
+      console.log(`[ConfigService] 🔒 Authentication context change blocked - authentication not verified and not service-level access`);
       return;
     }this.currentAuthMode = mode;
     this.store.set('currentAuthMode', mode);
@@ -768,8 +768,8 @@ export class ConfigService {
    * @returns Current Entra configuration or null if not set
    */
   getEntraConfig(): EntraConfig | null {
-    if (!this.isAuthenticationVerified) {
-      console.log('[ConfigService] 🔒 Access to Entra config blocked - authentication not verified');
+    if (!this.isAuthenticationVerified && !this.isServiceLevelAccess) {
+      console.log('[ConfigService] 🔒 Access to Entra config blocked - authentication not verified and not service-level access');
       return null;
     }
 
@@ -821,8 +821,8 @@ export class ConfigService {
    * @param entraConfig Entra configuration to save
    */  
   saveEntraConfig(entraConfig: EntraConfig): void {
-    if (!this.isAuthenticationVerified) {
-      console.log('[ConfigService] 🔒 Save Entra config blocked - authentication not verified');
+    if (!this.isAuthenticationVerified && !this.isServiceLevelAccess) {
+      console.log('[ConfigService] 🔒 Save Entra config blocked - authentication not verified and not service-level access');
       return;
     }
 
@@ -870,8 +870,8 @@ export class ConfigService {
    * Clear Entra application configuration
    */
   clearEntraConfig(): void {
-    if (!this.isAuthenticationVerified) {
-      console.log('[ConfigService] 🔒 Clear Entra config blocked - authentication not verified');
+    if (!this.isAuthenticationVerified && !this.isServiceLevelAccess) {
+      console.log('[ConfigService] 🔒 Clear Entra config blocked - authentication not verified and not service-level access');
       return;
     }
 

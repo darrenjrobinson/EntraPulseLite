@@ -34,6 +34,10 @@ if (process.platform === 'win32') {
   app.setAppUserModelId('com.darrenjrobinson.entrapulselite');
 }
 
+// Suppress cache-related warnings/errors that don't affect functionality
+app.commandLine.appendSwitch('disable-background-timer-throttling');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+
 class EntraPulseLiteApp {
   private mainWindow: BrowserWindow | null = null;
   private authService!: AuthService;
@@ -96,6 +100,11 @@ class EntraPulseLiteApp {
     console.log('[Main] ConfigService initialized');
     this.sendDebugToRenderer('[Main] ConfigService initialized');
     
+    // Set service-level access for the main process (trusted environment) BEFORE reading config
+    this.configService.setServiceLevelAccess(true);
+    console.log('[Main] Service-level access enabled for main process');
+    this.sendDebugToRenderer('[Main] Service-level access enabled for main process');
+    
     // Get authentication configuration (stored config takes precedence)
     console.log('[Main] ===== DEBUGGING AUTH INITIALIZATION =====');
     this.sendDebugToRenderer('[Main] ===== DEBUGGING AUTH INITIALIZATION =====');
@@ -117,9 +126,6 @@ class EntraPulseLiteApp {
       tenantIdExists: Boolean(authConfig.tenantId),
       clientSecretExists: Boolean(authConfig.clientSecret)
     });
-    
-    // Set service-level access for the main process (trusted environment)
-    this.configService.setServiceLevelAccess(true);
     
     // Set authentication as verified since we are in the main process
     this.configService.setAuthenticationVerified(true);
@@ -879,10 +885,34 @@ class EntraPulseLiteApp {
       
       console.log('🔐 [AUTH-HANDLER] auth:login IPC handler called!');
       try {
-        console.log('🔐 [AUTH-HANDLER] Starting authService.login()...');
-        this.mainWindow?.webContents.send('main-debug', '🔐 [AUTH-HANDLER] Starting authService.login()...');
+        // Temporarily enable access to configuration during login process
+        // This is required to read the system browser setting before authentication occurs
+        this.configService.setServiceLevelAccess(true);
+        this.configService.setAuthenticationVerified(true);
         
-        const result = await this.authService.login();
+        console.log('🔐 [AUTH-HANDLER] Temporarily enabled config access for system browser reading');
+        
+        // Check if system browser should be used from Entra configuration
+        const storedEntraConfig = this.configService.getEntraConfig();
+        const useSystemBrowser = storedEntraConfig?.useSystemBrowser || false;
+        
+        console.log('🔐 [AUTH-HANDLER] Entra config debug:', {
+          hasConfig: !!storedEntraConfig,
+          useSystemBrowser: storedEntraConfig?.useSystemBrowser,
+          finalUseSystemBrowser: useSystemBrowser
+        });
+        
+        // Reset authentication verification (will be set to true after successful login)
+        // Keep service-level access true since we're in the main process
+        this.configService.setAuthenticationVerified(false);
+        this.configService.setServiceLevelAccess(true);
+        
+        console.log('🔐 [AUTH-HANDLER] Starting authService.login()...');
+        console.log('🌐 [AUTH-HANDLER] Using system browser:', useSystemBrowser ? 'Yes (CA compliance mode)' : 'No (embedded browser)');
+        this.mainWindow?.webContents.send('main-debug', '🔐 [AUTH-HANDLER] Starting authService.login()...');
+        this.mainWindow?.webContents.send('main-debug', `🌐 [AUTH-HANDLER] Browser mode: ${useSystemBrowser ? 'System (CA compliant)' : 'Embedded'}`);
+        
+        const result = await this.authService.login(useSystemBrowser);
         
         console.log('🔐 [AUTH-HANDLER] authService.login() completed:', {
           success: !!result,

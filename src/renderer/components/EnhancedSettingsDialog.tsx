@@ -1819,7 +1819,9 @@ interface EntraConfigFormProps {
 
 const EntraConfigForm: React.FC<EntraConfigFormProps> = ({ config, onSave, onClear, graphPermissions, loadGraphPermissions, tenantInfo }) => {  const [localConfig, setLocalConfig] = useState<EntraConfig>({
     clientId: '',
-    tenantId: ''
+    tenantId: '',
+    useGraphPowerShell: false,
+    useSystemBrowser: false
   });
   const [isSaving, setIsSaving] = useState(false);
   const [isUserEditing, setIsUserEditing] = useState(false);
@@ -1830,7 +1832,14 @@ const EntraConfigForm: React.FC<EntraConfigFormProps> = ({ config, onSave, onCle
     // Only update local config if the user is not actively editing
     // This prevents the form from being cleared when background processes reload config
     if (config && !isUserEditing) {
-      setLocalConfig(config);
+      // Merge with current localConfig to preserve any undefined fields with default values
+      setLocalConfig(prevConfig => ({
+        ...prevConfig,
+        ...config,
+        // Ensure boolean fields have proper defaults if undefined
+        useGraphPowerShell: config.useGraphPowerShell ?? false,
+        useSystemBrowser: config.useSystemBrowser ?? false
+      }));
     }
   }, [config, isUserEditing]);
 
@@ -1843,7 +1852,7 @@ const EntraConfigForm: React.FC<EntraConfigFormProps> = ({ config, onSave, onCle
       console.log('🔄 Loading permissions for authentication mode (Enhanced Graph Access or Custom App)...');
       loadGraphPermissions();
     }
-  }, [localConfig.useGraphPowerShell, localConfig.clientId, loadGraphPermissions]);
+  }, [localConfig.useGraphPowerShell, localConfig.clientId]); // Removed loadGraphPermissions from dependencies
 
   const handleSave = async () => {
     try {
@@ -1863,7 +1872,9 @@ const EntraConfigForm: React.FC<EntraConfigFormProps> = ({ config, onSave, onCle
       setIsSaving(true);
       await onClear();      setLocalConfig({
         clientId: '',
-        tenantId: ''
+        tenantId: '',
+        useGraphPowerShell: false,
+        useSystemBrowser: false
       });
       // Successfully cleared - no longer editing
       setIsUserEditing(false);
@@ -1874,7 +1885,7 @@ const EntraConfigForm: React.FC<EntraConfigFormProps> = ({ config, onSave, onCle
     }
   };
 
-  const handleInputChange = (field: keyof EntraConfig, value: string) => {
+  const handleInputChange = (field: keyof EntraConfig, value: string | boolean) => {
     setLocalConfig({ ...localConfig, [field]: value });
     // Mark as user editing when any input changes
     setIsUserEditing(true);
@@ -1915,7 +1926,8 @@ const EntraConfigForm: React.FC<EntraConfigFormProps> = ({ config, onSave, onCle
     }
   };
 
-  const isConfigured = !!(config?.clientId && config?.tenantId);
+  // Check if configuration exists either in stored config or in current local editing state
+  const isConfigured = !!(config?.clientId && config?.tenantId) || !!(localConfig.clientId.trim() && localConfig.tenantId.trim());
   return (
     <>
       <Grid container spacing={2}>
@@ -2350,6 +2362,63 @@ const EntraConfigForm: React.FC<EntraConfigFormProps> = ({ config, onSave, onCle
           }
           disabled={isSaving}
         />
+      </Grid>
+
+      {/* System Browser Authentication Option */}
+      <Grid item xs={12}>
+        <Box sx={{ p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1, backgroundColor: 'background.paper' }}>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={localConfig.useSystemBrowser || false}
+                onChange={async (e) => {
+                  console.log('🌐 System Browser toggle changing to:', e.target.checked);
+                  const newConfig = { ...localConfig, useSystemBrowser: e.target.checked };
+                  setLocalConfig(newConfig);
+                  setIsUserEditing(true);
+                  
+                  // Auto-save only if we have the minimum required configuration (ClientID and TenantID)
+                  if (newConfig.clientId.trim() && newConfig.tenantId.trim()) {
+                    try {
+                      console.log('🔄 Auto-saving Entra config with system browser setting:', e.target.checked);
+                      await onSave(newConfig);
+                      console.log('✅ System browser setting saved successfully');
+                      setIsUserEditing(false);
+                    } catch (error) {
+                      console.error('❌ Failed to save system browser setting:', error);
+                    }
+                  } else {
+                    console.log('🔄 System browser setting changed but not auto-saving - missing required ClientID/TenantID');
+                    setIsUserEditing(false);
+                  }
+                }}
+                disabled={isSaving}
+              />
+            }
+            label="Use System Browser for Authentication"
+          />
+          
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1, mb: 1 }}>
+            Enable this option if your organization has Conditional Access policies that require a compliant browser. 
+            When enabled, authentication will open in your default system browser instead of the embedded browser window.
+          </Typography>
+          
+          <Alert severity="info" sx={{ mb: 1 }}>
+            <Typography variant="body2">
+              <strong>When to use this option:</strong>
+              <br/>• Your organization has Conditional Access policies requiring device compliance
+              <br/>• You see errors about "This application contains sensitive information" or browser compliance
+              <br/>• Your admin requires authentication through the system browser for security policies
+            </Typography>
+          </Alert>
+          
+          <Alert severity="warning">
+            <Typography variant="body2">
+              <strong>Note:</strong> System browser authentication requires a temporary local server on port 3000. 
+              Ensure this port is available and not blocked by firewall settings.
+            </Typography>
+          </Alert>
+        </Box>
       </Grid>      <Grid item xs={12}>
         <Box display="flex" gap={1} justifyContent="flex-end">
           {isConfigured && (

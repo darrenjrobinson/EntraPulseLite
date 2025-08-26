@@ -3,17 +3,10 @@
 ## 🚀 Quick Start for End Users
 
 ### Prerequisites
-- **Windows 10/11** (primary platform)- `"What groups am I a member of?"` - App information (Enhanced Graph Access)
-
-## 🛠️ Developer Installation
-
-### Developer Prerequisites
-- **Node.js** 18.0 or higher
-- **npm** 8.0 or higher (or **yarn** 1.22+)
-- **Git** for version control
-
-### Microsoft Work/School Account** 
-- **Internet Connection** for cloud LLM providers & Setup Guide
+- **Windows 10/11** (primary platform)
+- **Microsoft Work/School Account** 
+- **Internet Connection** for cloud LLM providers
+- **Port 3000 Access** (when using System Browser authentication mode)
 
 ## � Quick Start for End Users
 ## 🛠️ Developer Installation
@@ -89,6 +82,38 @@ The application will automatically use the Microsoft Graph PowerShell applicatio
 > 
 > **Alternative:** Your tenant ID is also visible in EntraPulse Lite under **User Profile** → **Session Info** after signing in
 
+### 4a. Configure Browser Authentication (Optional)
+
+EntraPulse Lite supports two browser authentication modes to accommodate different organizational security requirements:
+
+#### Option A: Embedded Browser (Default)
+- Authentication occurs within the application window
+- Seamless user experience with integrated login flow
+- No additional configuration required
+
+#### Option B: System Browser (CA Compliance)
+1. Go to **Settings** → **Entra Application Settings**
+2. Toggle **"Use System Browser"** to **ON**
+3. Click **Save Configuration**
+
+> **⚠️ Network Requirements for System Browser:**
+> - **Port 3000** must be accessible on localhost for authentication redirect
+> - Ensure your firewall allows local connections to `http://localhost:3000`
+> - Corporate networks may require IT approval for localhost port access
+
+**When to use System Browser:**
+- ✅ Your organization requires Certificate Authority (CA) compliance
+- ✅ You need hardware security key (FIDO2/WebAuthn) support
+- ✅ Complex conditional access policies are applied to your account
+- ✅ Device-based authentication is required
+- ✅ Enterprise security policies block embedded browser authentication
+
+**When to use Embedded Browser:**
+- ✅ Standard authentication scenarios
+- ✅ Simplified user experience is preferred
+- ✅ No specific CA compliance requirements
+- ✅ Basic multi-factor authentication is sufficient
+
 ### 5. Test Your Setup
 1. In the chat interface, ask: **"Who am I?"**
 2. You should see your Microsoft profile information
@@ -109,7 +134,15 @@ Your EntraPulse Lite is now configured with:
 - Ensure you're using a **Work or School** Microsoft account (not personal)
 - Check your internet connection
 - Try signing out and signing in again
+- **Try switching browser mode**: Toggle "Use System Browser" in Settings if authentication fails
 - Contact your IT administrator if you see permission errors
+
+**❌ "Browser authentication issues":**
+- **Embedded Browser fails**: Try enabling "Use System Browser" in Settings → Entra Application Settings
+- **System Browser fails**: Try disabling "Use System Browser" to use embedded authentication
+- **CA compliance errors**: Enable "Use System Browser" for Certificate Authority compliance
+- **Hardware security key not working**: Enable "Use System Browser" for FIDO2/WebAuthn support
+- **System Browser redirect fails**: Ensure port 3000 is not blocked by firewall or corporate network policies
 
 **❌ "LLM Provider Error" or no responses:**
 - Verify your API key is correct (check for extra spaces)
@@ -286,6 +319,32 @@ EntraPulse Lite supports multiple delegated authentication modes, each providing
 
 > **📝 Note**: All authentication modes use delegated permissions with user context. True application-only authentication (client credentials flow) is not implemented.
 
+### Browser Authentication Modes
+
+EntraPulse Lite supports two browser authentication approaches to accommodate different organizational security requirements:
+
+| Browser Mode | Experience | Security Features | Use Case |
+|--------------|------------|-------------------|----------|
+| **Embedded Browser** | Integrated | Standard MFA | Default user experience |
+| **System Browser** | External redirect | CA compliance, FIDO2/WebAuthn, Advanced policies | Enterprise security requirements |
+
+**Embedded Browser (Default):**
+- Authentication occurs within the application window
+- Seamless user experience with integrated login flow
+- Compatible with standard multi-factor authentication
+- Suitable for most authentication scenarios
+
+**System Browser (CA Compliance):**
+- Authentication redirects to your default system browser
+- Required for Certificate Authority (CA) compliance policies
+- Supports hardware security keys (FIDO2/WebAuthn)
+- Compatible with complex conditional access policies
+- Supports device-based authentication requirements
+- Recommended for enterprise environments with strict security policies
+- **Requires**: Port 3000 accessible on localhost for authentication redirect
+
+**Configuration:** Toggle between modes in Settings → Entra Application Settings → "Use System Browser"
+
 ### Basic Setup (Default)
 EntraPulse Lite works out of the box with Microsoft's authentication:
 - Uses Microsoft's public client configuration for user authentication
@@ -368,6 +427,12 @@ For enterprise scenarios requiring custom permissions:
    - Click **Save Configuration**
    - **Result**: Microsoft Graph PowerShell delegated permissions
 
+**System Browser Authentication** (For CA Compliance)
+   - Go to **Settings** → **Entra Application Settings**
+   - Toggle **"Use System Browser"** to **ON**
+   - Click **Save Configuration**
+   - **Result**: Authentication will redirect to your default system browser for enhanced security compliance
+
 > **🔄 Authentication Flow Priority:**
 > 1. **Enhanced Graph Access** (if enabled)
 > 2. **Custom User Token Mode** (if custom client ID configured)
@@ -382,6 +447,8 @@ For enterprise scenarios requiring custom permissions:
 > - **Platform Type**: Use "Mobile and desktop applications" NOT "Single-page application"
 > - **Redirect URI**: Must be exactly `http://localhost` to match the authentication flow
 > - **Public Client Flows**: Must be enabled for desktop applications
+> - **System Browser**: Enable "Use System Browser" for CA compliance or when embedded browser authentication fails
+> - **Port 3000**: Must be accessible on localhost when using System Browser authentication mode
 
 ## 🧪 Verification
 
@@ -463,6 +530,9 @@ npm install
 - Ensure redirect URI is configured correctly
 - Check network connectivity
 - Verify tenant and client ID
+- **Try System Browser**: Enable "Use System Browser" in Settings if embedded authentication fails
+- **Try Embedded Browser**: Disable "Use System Browser" if system browser authentication has issues
+- **Port 3000 blocked**: Ensure localhost port 3000 is accessible when using System Browser mode
 
 **4. LLM Connection Issues**
 - Verify local LLM is running: `curl http://localhost:11434/api/version`

@@ -4,7 +4,7 @@
 import { PublicClientApplication, Configuration, AuthenticationResult, AccountInfo } from '@azure/msal-node';
 import { ConfidentialClientApplication } from '@azure/msal-node';
 import { AppConfig, AuthToken } from '../types';
-import { BrowserWindow, app } from 'electron';
+import { BrowserWindow, app, shell } from 'electron';
 import { createHash, randomBytes } from 'crypto';
 import * as http from 'http';
 import * as path from 'path';
@@ -53,17 +53,19 @@ export class AuthService {
   }
   /**
    * Sign in the user (alias for login)
+   * @param useSystemBrowser Optional flag to use system browser instead of embedded browser
    * @returns Authentication token
    */
-  async login(): Promise<AuthToken | null> {
-    return this.signIn();
+  async login(useSystemBrowser?: boolean): Promise<AuthToken | null> {
+    return this.signIn(useSystemBrowser);
   }
 
   /**
    * Sign in the user
+   * @param useSystemBrowser Optional flag to use system browser instead of embedded browser
    * @returns Authentication token
    */
-  async signIn(): Promise<AuthToken | null> {
+  async signIn(useSystemBrowser?: boolean): Promise<AuthToken | null> {
     if (!this.pca || !this.config?.auth?.scopes) {
       throw new Error('Authentication service not initialized');
     }
@@ -89,7 +91,13 @@ export class AuthService {
         }
 
         console.log('🔐 Starting interactive browser authentication...');
-        return await this.acquireTokenInteractively();
+        if (useSystemBrowser) {
+          console.log('🌐 Using system browser for authentication (CA policy compliance)');
+          return await this.acquireTokenWithSystemBrowser();
+        } else {
+          console.log('🪟 Using embedded browser window for authentication');
+          return await this.acquireTokenInteractively();
+        }
       }
     } catch (error) {
       console.error('Authentication error:', error);
@@ -258,6 +266,181 @@ export class AuthService {
     } catch (error) {
       console.error('Error handling auth redirect:', error);
       authWindow.close();
+      reject(error);
+    }
+  }
+
+  /**
+   * Acquire token using system browser (for Conditional Access compliance)
+   */
+  private async acquireTokenWithSystemBrowser(): Promise<AuthToken | null> {
+    if (!this.pca || !(this.pca instanceof PublicClientApplication) || !this.config?.auth?.scopes) {
+      throw new Error('Public client not properly initialized for interactive flow');
+    }
+
+    return new Promise((resolve, reject) => {
+      let server: http.Server | null = null;
+      let authCompleted = false;
+
+      // Generate PKCE parameters for secure authentication
+      const codeVerifier = this.generateCodeVerifier();
+      const codeChallenge = this.generateCodeChallenge(codeVerifier);
+
+      // Find available port and create HTTP server to handle redirect
+      const port = 3000; // Using fixed port for simplicity
+      const redirectUri = `http://localhost:${port}`;
+
+      server = http.createServer(async (req, res) => {
+        try {
+          if (req.url && req.url.startsWith('/?')) {
+            authCompleted = true;
+            
+            // Send a response to the browser
+            res.writeHead(200, { 'Content-Type': 'text/html' });
+            res.end(`
+              <html>
+                <head>
+                  <title>Authentication Complete</title>
+                  <meta charset="UTF-8">
+                </head>
+                <body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
+                  <h2>✓ Authentication Successful</h2>
+                  <p>You can now close this browser window and return to EntraPulse Lite.</p>
+                  <script>
+                    setTimeout(() => {
+                      window.close();
+                    }, 3000);
+                  </script>
+                </body>
+              </html>
+            `);
+
+            // Handle the authorization response
+            await this.handleSystemBrowserRedirect(req.url, codeVerifier, resolve, reject);
+            
+            // Close the server
+            if (server) {
+              server.close();
+              server = null;
+            }
+          }
+        } catch (error) {
+          console.error('Error handling system browser redirect:', error);
+          res.writeHead(500, { 'Content-Type': 'text/plain' });
+          res.end('Authentication failed');
+          reject(error);
+        }
+      });
+
+      server.listen(port, () => {
+        // Build the authorization URL
+        const tenantId = this.config!.auth.tenantId;
+        const clientId = this.config!.auth.clientId;
+        const scopes = encodeURIComponent(this.config!.auth.scopes.join(' '));
+        const state = Date.now().toString();
+
+        const authUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?` +
+          `client_id=${clientId}&` +
+          `response_type=code&` +
+          `redirect_uri=${encodeURIComponent(redirectUri)}&` +
+          `scope=${scopes}&` +
+          `response_mode=query&` +
+          `state=${state}&` +
+          `code_challenge=${codeChallenge}&` +
+          `code_challenge_method=S256&` +
+          `prompt=select_account`;
+
+        console.log('🌐 Opening system browser for authentication...');
+        
+        // Open the authentication URL in the system browser
+        shell.openExternal(authUrl).catch((error) => {
+          console.error('Failed to open system browser:', error);
+          reject(new Error('Failed to open system browser for authentication'));
+        });
+      });
+
+      server.on('error', (error) => {
+        console.error('HTTP server error:', error);
+        reject(new Error(`Failed to start local server for authentication: ${error.message}`));
+      });
+
+      // Set a timeout for authentication
+      setTimeout(() => {
+        if (!authCompleted && server) {
+          server.close();
+          reject(new Error('Authentication timed out. Please try again.'));
+        }
+      }, 300000); // 5 minute timeout
+    });
+  }
+
+  /**
+   * Handle system browser redirect and extract authorization code
+   */
+  private async handleSystemBrowserRedirect(
+    url: string,
+    codeVerifier: string,
+    resolve: (value: AuthToken | null) => void,
+    reject: (reason?: any) => void
+  ): Promise<void> {
+    try {
+      const urlObj = new URL(`http://localhost${url}`);
+      const code = urlObj.searchParams.get('code');
+      const error = urlObj.searchParams.get('error');
+      const errorDescription = urlObj.searchParams.get('error_description');
+
+      if (error) {
+        console.error('Authentication error:', error, errorDescription);
+        reject(new Error(`Authentication failed: ${error} - ${errorDescription}`));
+        return;
+      }
+
+      if (code) {
+        console.log('🔑 Authorization code received, exchanging for token...');
+        
+        try {
+          // Exchange authorization code for token
+          const tokenResponse = await fetch('https://login.microsoftonline.com/' + this.config!.auth.tenantId + '/oauth2/v2.0/token', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: new URLSearchParams({
+              client_id: this.config!.auth.clientId,
+              scope: this.config!.auth.scopes.join(' '),
+              code: code,
+              redirect_uri: 'http://localhost:3000',
+              grant_type: 'authorization_code',
+              code_verifier: codeVerifier,
+            }),
+          });
+
+          if (!tokenResponse.ok) {
+            const errorText = await tokenResponse.text();
+            throw new Error(`Token exchange failed: ${tokenResponse.status} ${errorText}`);
+          }
+
+          const result = await tokenResponse.json();
+          
+          console.log('✅ Token exchange successful');
+
+          const authToken: AuthToken = {
+            accessToken: result.access_token,
+            idToken: result.id_token || '',
+            expiresOn: new Date(Date.now() + (result.expires_in * 1000)),
+            scopes: this.config!.auth.scopes
+          };
+
+          resolve(authToken);
+        } catch (tokenError) {
+          console.error('Token exchange failed:', tokenError);
+          reject(new Error(`Token exchange failed: ${tokenError}`));
+        }
+      } else {
+        reject(new Error('No authorization code received in redirect'));
+      }
+    } catch (error) {
+      console.error('Error handling system browser redirect:', error);
       reject(error);
     }
   }

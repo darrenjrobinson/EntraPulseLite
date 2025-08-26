@@ -50,7 +50,7 @@ interface Window {
   };
   electronAPI: {
     auth: {
-      login: (useRedirectFlow?: boolean) => Promise<any>;
+      login: (useSystemBrowser?: boolean) => Promise<any>;
       logout: () => Promise<void>;
       getToken: () => Promise<any>;
       getCurrentUser: () => Promise<any>;      requestPermissions: (permissions: string[]) => Promise<any>;
