@@ -433,11 +433,12 @@ export const EnhancedSettingsDialog: React.FC<EnhancedSettingsDialogProps> = ({
     
     // Set up event listeners for authentication events
     const handleAuthSuccess = () => {
-      console.log('🔐 Authentication success detected, reloading tenant info...');
-      setTimeout(() => {
-        loadTenantInfo();
-        loadGraphPermissions();
-      }, 1000); // Small delay to ensure token is fully available
+  console.log('🔐 Authentication success detected, forcing reload of tenant info and permissions...');
+  // Bypass throttling by resetting last load refs
+  lastTenantInfoLoadRef.current = 0;
+  lastGraphPermissionsLoadRef.current = 0;
+  loadTenantInfo();
+  loadGraphPermissions();
     };
 
     const handleAuthFailure = () => {
