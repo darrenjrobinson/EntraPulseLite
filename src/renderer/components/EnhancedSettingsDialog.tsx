@@ -1823,6 +1823,7 @@ const EntraConfigForm: React.FC<EntraConfigFormProps> = ({ config, onSave, onCle
     useGraphPowerShell: false,
     useSystemBrowser: false
   });
+  const ENHANCED_GRAPH_CLIENT_ID = '14d82eec-204b-4c2f-b7e8-296a70dab67e';
   const [isSaving, setIsSaving] = useState(false);
   const [isUserEditing, setIsUserEditing] = useState(false);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
@@ -1857,8 +1858,12 @@ const EntraConfigForm: React.FC<EntraConfigFormProps> = ({ config, onSave, onCle
   const handleSave = async () => {
     try {
       setIsSaving(true);
-      await onSave(localConfig);
-      // Successfully saved - no longer editing
+      let configToSave = { ...localConfig };
+      // If Enhanced Graph Access is enabled, set clientId internally
+      if (localConfig.useGraphPowerShell) {
+        configToSave.clientId = ENHANCED_GRAPH_CLIENT_ID;
+      }
+      await onSave(configToSave);
       setIsUserEditing(false);
     } catch (error) {
       console.error('Failed to save Entra config:', error);
@@ -1901,12 +1906,22 @@ const EntraConfigForm: React.FC<EntraConfigFormProps> = ({ config, onSave, onCle
       console.log('🧪 Testing Entra application configuration...');
       
       // Validate that we have the minimum required fields
-      if (!localConfig.clientId.trim() || !localConfig.tenantId.trim()) {
-        setTestResult({
-          success: false,
-          error: 'Client ID and Tenant ID are required for testing'
-        });
-        return;
+      if (localConfig.useGraphPowerShell) {
+        if (!localConfig.tenantId.trim()) {
+          setTestResult({
+            success: false,
+            error: 'Tenant ID is required for Enhanced Graph Access'
+          });
+          return;
+        }
+      } else {
+        if (!localConfig.clientId.trim() || !localConfig.tenantId.trim()) {
+          setTestResult({
+            success: false,
+            error: 'Client ID and Tenant ID are required for testing'
+          });
+          return;
+        }
       }
 
       const electronAPI = window.electronAPI as any;
@@ -1927,7 +1942,9 @@ const EntraConfigForm: React.FC<EntraConfigFormProps> = ({ config, onSave, onCle
   };
 
   // Check if configuration exists either in stored config or in current local editing state
-  const isConfigured = !!(config?.clientId && config?.tenantId) || !!(localConfig.clientId.trim() && localConfig.tenantId.trim());
+  const isConfigured = localConfig.useGraphPowerShell
+    ? !!localConfig.tenantId.trim()
+    : (!!(config?.clientId && config?.tenantId) || !!(localConfig.clientId.trim() && localConfig.tenantId.trim()));
   return (
     <>
       <Grid container spacing={2}>
@@ -2373,12 +2390,16 @@ const EntraConfigForm: React.FC<EntraConfigFormProps> = ({ config, onSave, onCle
                 checked={localConfig.useSystemBrowser || false}
                 onChange={async (e) => {
                   console.log('🌐 System Browser toggle changing to:', e.target.checked);
-                  const newConfig = { ...localConfig, useSystemBrowser: e.target.checked };
+                  const ENHANCED_GRAPH_CLIENT_ID = '14d82eec-204b-4c2f-b7e8-296a70dab67e';
+                  let newConfig = { ...localConfig, useSystemBrowser: e.target.checked };
+                  // If Enhanced Graph Access is enabled, set clientId internally
+                  if (newConfig.useGraphPowerShell) {
+                    newConfig.clientId = ENHANCED_GRAPH_CLIENT_ID;
+                  }
                   setLocalConfig(newConfig);
                   setIsUserEditing(true);
-                  
-                  // Auto-save only if we have the minimum required configuration (ClientID and TenantID)
-                  if (newConfig.clientId.trim() && newConfig.tenantId.trim()) {
+                  // Auto-save if minimum required config is present
+                  if ((newConfig.useGraphPowerShell && newConfig.tenantId.trim()) || (newConfig.clientId.trim() && newConfig.tenantId.trim())) {
                     try {
                       console.log('🔄 Auto-saving Entra config with system browser setting:', e.target.checked);
                       await onSave(newConfig);
@@ -2388,7 +2409,7 @@ const EntraConfigForm: React.FC<EntraConfigFormProps> = ({ config, onSave, onCle
                       console.error('❌ Failed to save system browser setting:', error);
                     }
                   } else {
-                    console.log('🔄 System browser setting changed but not auto-saving - missing required ClientID/TenantID');
+                    console.log('🔄 System browser setting changed but not auto-saving - missing required TenantID');
                     setIsUserEditing(false);
                   }
                 }}
