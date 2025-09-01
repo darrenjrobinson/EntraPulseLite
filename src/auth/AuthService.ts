@@ -424,6 +424,40 @@ export class AuthService {
           
           console.log('✅ Token exchange successful');
 
+          // CRITICAL FIX: Create account object from token response for system browser authentication
+          // This ensures getAuthenticationInfo() correctly reports isAuthenticated: true
+          if (result.id_token) {
+            try {
+              // Decode the ID token to get account information (we only need basic info for account object)
+              const idTokenPayload = JSON.parse(atob(result.id_token.split('.')[1]));
+              
+              // Create account object similar to MSAL's AccountInfo structure
+              this.account = {
+                homeAccountId: `${idTokenPayload.oid}.${idTokenPayload.tid}`,
+                environment: 'login.microsoftonline.com',
+                tenantId: idTokenPayload.tid,
+                username: idTokenPayload.preferred_username || idTokenPayload.upn || idTokenPayload.email,
+                localAccountId: idTokenPayload.oid,
+                name: idTokenPayload.name
+              } as AccountInfo;
+              
+              console.log('🔐 Account object created for system browser auth:', {
+                username: this.account.username,
+                tenantId: this.account.tenantId
+              });
+            } catch (accountError) {
+              console.warn('⚠️ Failed to create account object from ID token, but continuing with auth:', accountError);
+              // Create minimal account object to ensure authentication state is preserved
+              this.account = {
+                homeAccountId: 'system_browser_auth',
+                environment: 'login.microsoftonline.com',
+                tenantId: this.config!.auth.tenantId,
+                username: 'user@tenant.com',
+                localAccountId: 'system_browser_user'
+              } as AccountInfo;
+            }
+          }
+
           const authToken: AuthToken = {
             accessToken: result.access_token,
             idToken: result.id_token || '',
@@ -737,10 +771,36 @@ export class AuthService {
       throw new Error('Authentication service not initialized');
     }
 
+    // For client credentials, we're always "authenticated"
+    if (this.useClientCredentials) {
+      return {
+        mode: 'client-credentials',
+        permissions: this.config.auth.scopes || [],
+        isAuthenticated: true,
+        clientId: this.config.auth.clientId,
+        tenantId: this.config.auth.tenantId
+      };
+    }
+
+    // For interactive mode, check if we have a valid account and can get a token
+    let isAuthenticated = false;
+    try {
+      // Check if we have a cached account (indicates previous successful authentication)
+      if (this.account && this.pca instanceof PublicClientApplication) {
+        // We have an account - this means user has successfully authenticated before
+        // We don't need to call getToken() here as it's expensive and can cause UI lag
+        isAuthenticated = true;
+      }
+    } catch (error) {
+      // If there's any error checking authentication state, default to false
+      console.log('🔍 Authentication state check failed:', error);
+      isAuthenticated = false;
+    }
+
     return {
-      mode: this.useClientCredentials ? 'client-credentials' : 'interactive',
+      mode: 'interactive',
       permissions: this.config.auth.scopes || [],
-      isAuthenticated: this.useClientCredentials ? true : false, // For client credentials, we're always "authenticated"
+      isAuthenticated,
       clientId: this.config.auth.clientId,
       tenantId: this.config.auth.tenantId
     };
@@ -757,6 +817,12 @@ export class AuthService {
     tenantId: string;
   }> {
     const basicInfo = this.getAuthenticationInfo();
+
+    // If basic authentication check already indicates we're not authenticated, 
+    // don't try to get token for interactive mode (avoid expensive operations)
+    if (!basicInfo.isAuthenticated && !this.useClientCredentials) {
+      return basicInfo;
+    }
 
     try {
       // Get current token to extract actual permissions for both auth modes
