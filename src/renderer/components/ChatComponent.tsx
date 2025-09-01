@@ -256,7 +256,20 @@ export const ChatComponent: React.FC<ChatComponentProps> = () => {
         hasAccessToken: !!(token && token.accessToken)
       });
       setAuthToken(token);
-      const currentUser = await window.electronAPI.auth.getCurrentUser();      setUser(currentUser);
+      
+      console.log('👤 [FRONTEND] Calling getCurrentUser()...');
+      const currentUser = await window.electronAPI.auth.getCurrentUser();
+      console.log('👤 [FRONTEND] getCurrentUser() result:', {
+        hasUser: !!currentUser,
+        userDetails: currentUser ? {
+          id: currentUser.id,
+          displayName: currentUser.displayName,
+          mail: currentUser.mail,
+          userPrincipalName: currentUser.userPrincipalName
+        } : null
+      });
+      
+      setUser(currentUser);
       setError(null);
         // Force a check of LLM availability
       forceLLMCheck();

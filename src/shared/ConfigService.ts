@@ -1105,6 +1105,16 @@ export class ConfigService {
     console.log('[ConfigService] MCP config retrieved:', mcpConfig);
     const lokkaConfig = mcpConfig.lokka;
     console.log('[ConfigService] Lokka config:', lokkaConfig);
+    
+    // Debug the auth mode being used
+    console.log('[ConfigService] 🔍 Lokka auth mode analysis:', {
+      authMode: lokkaConfig?.authMode,
+      enabled: lokkaConfig?.enabled,
+      useGraphPowerShell: lokkaConfig?.useGraphPowerShell,
+      hasClientId: !!lokkaConfig?.clientId,
+      hasClientSecret: !!lokkaConfig?.clientSecret,
+      hasAccessToken: !!lokkaConfig?.accessToken
+    });
 
     if (!lokkaConfig || !lokkaConfig.enabled) {
       return {};

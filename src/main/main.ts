@@ -909,8 +909,18 @@ class EntraPulseLiteApp {
         
         console.log('🔐 [AUTH-HANDLER] Starting authService.login()...');
         console.log('🌐 [AUTH-HANDLER] Using system browser:', useSystemBrowser ? 'Yes (CA compliance mode)' : 'No (embedded browser)');
+        
+        // Debug current configuration before login
+        const currentAuthConfig = await this.getAuthConfiguration();
+        console.log('🔐 [AUTH-HANDLER] Current auth config before login:', {
+          clientId: currentAuthConfig.clientId.substring(0, 12) + '...',
+          tenantId: currentAuthConfig.tenantId.substring(0, 8) + '...',
+          actualConfig: this.config.auth.clientId.substring(0, 12) + '...'
+        });
+        
         this.mainWindow?.webContents.send('main-debug', '🔐 [AUTH-HANDLER] Starting authService.login()...');
         this.mainWindow?.webContents.send('main-debug', `🌐 [AUTH-HANDLER] Browser mode: ${useSystemBrowser ? 'System (CA compliant)' : 'Embedded'}`);
+        this.mainWindow?.webContents.send('main-debug', `🔐 [AUTH-HANDLER] Client ID: ${currentAuthConfig.clientId.substring(0, 12)}...`);
         
         const result = await this.authService.login(useSystemBrowser);
         
@@ -1032,7 +1042,7 @@ class EntraPulseLiteApp {
                     console.log(`🔧 [ACCESS-TOKEN] Token preview: ${token.accessToken.substring(0, 50)}...`);
                     env = {
                       TENANT_ID: 'common', // Use 'common' for multi-tenant Enhanced Graph Access
-                      CLIENT_ID: process.env.MSAL_CLIENT_ID || 'ad6e8b1b-4ced-4088-bd72-d3d02e71df4e', // Current client ID
+                      CLIENT_ID: '14d82eec-204b-4c2f-b7e8-296a70dab67e', // Microsoft Graph PowerShell client ID
                       ACCESS_TOKEN: token.accessToken,
                       USE_INTERACTIVE: 'false', // Use provided token, don't authenticate interactively
                       USE_CLIENT_TOKEN: 'true' // Required for Lokka to use client-provided-token mode
@@ -1041,7 +1051,7 @@ class EntraPulseLiteApp {
                     console.error('❌ Failed to get user access token for Enhanced Graph Access, falling back to client token mode');
                     env = {
                       TENANT_ID: 'common',
-                      CLIENT_ID: process.env.MSAL_CLIENT_ID || 'ad6e8b1b-4ced-4088-bd72-d3d02e71df4e',
+                      CLIENT_ID: '14d82eec-204b-4c2f-b7e8-296a70dab67e', // Microsoft Graph PowerShell client ID
                       USE_CLIENT_TOKEN: 'true'
                     };
                   }
@@ -1050,7 +1060,7 @@ class EntraPulseLiteApp {
                   console.log('🔧 Falling back to client token mode');
                   env = {
                     TENANT_ID: 'common',
-                    CLIENT_ID: process.env.MSAL_CLIENT_ID || 'ad6e8b1b-4ced-4088-bd72-d3d02e71df4e',
+                    CLIENT_ID: '14d82eec-204b-4c2f-b7e8-296a70dab67e', // Microsoft Graph PowerShell client ID
                     USE_CLIENT_TOKEN: 'true'
                   };
                 }
@@ -2791,6 +2801,15 @@ class EntraPulseLiteApp {
     console.log('[Main] About to call getLokkaMCPEnvironment...');
     const lokkaEnv = this.configService.getLokkaMCPEnvironment(userToken);
     console.log('[Main] getLokkaMCPEnvironment returned:', lokkaEnv);
+    
+    // Debug the exact environment variables being passed to Lokka
+    console.log('[Main] 🔍 Lokka environment variables being set:', {
+      CLIENT_ID: lokkaEnv.CLIENT_ID ? lokkaEnv.CLIENT_ID.substring(0, 12) + '...' : 'not set',
+      TENANT_ID: lokkaEnv.TENANT_ID ? lokkaEnv.TENANT_ID.substring(0, 8) + '...' : 'not set',
+      USE_CLIENT_TOKEN: lokkaEnv.USE_CLIENT_TOKEN,
+      hasAccessToken: !!lokkaEnv.ACCESS_TOKEN,
+      totalEnvVars: Object.keys(lokkaEnv).length
+    });
     
     console.log('[Main] About to call isLokkaMCPConfigured...');
     const isLokkaConfigured = this.configService.isLokkaMCPConfigured();
