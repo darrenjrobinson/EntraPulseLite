@@ -433,12 +433,11 @@ export const EnhancedSettingsDialog: React.FC<EnhancedSettingsDialogProps> = ({
     
     // Set up event listeners for authentication events
     const handleAuthSuccess = () => {
-  console.log('🔐 Authentication success detected, forcing reload of tenant info and permissions...');
-  // Bypass throttling by resetting last load refs
-  lastTenantInfoLoadRef.current = 0;
-  lastGraphPermissionsLoadRef.current = 0;
-  loadTenantInfo();
-  loadGraphPermissions();
+      console.log('🔐 Authentication success detected, reloading tenant info...');
+      setTimeout(() => {
+        loadTenantInfo();
+        loadGraphPermissions();
+      }, 1000); // Small delay to ensure token is fully available
     };
 
     const handleAuthFailure = () => {
@@ -1824,7 +1823,6 @@ const EntraConfigForm: React.FC<EntraConfigFormProps> = ({ config, onSave, onCle
     useGraphPowerShell: false,
     useSystemBrowser: false
   });
-  const ENHANCED_GRAPH_CLIENT_ID = '14d82eec-204b-4c2f-b7e8-296a70dab67e';
   const [isSaving, setIsSaving] = useState(false);
   const [isUserEditing, setIsUserEditing] = useState(false);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
@@ -1859,12 +1857,8 @@ const EntraConfigForm: React.FC<EntraConfigFormProps> = ({ config, onSave, onCle
   const handleSave = async () => {
     try {
       setIsSaving(true);
-      let configToSave = { ...localConfig };
-      // If Enhanced Graph Access is enabled, set clientId internally
-      if (localConfig.useGraphPowerShell) {
-        configToSave.clientId = ENHANCED_GRAPH_CLIENT_ID;
-      }
-      await onSave(configToSave);
+      await onSave(localConfig);
+      // Successfully saved - no longer editing
       setIsUserEditing(false);
     } catch (error) {
       console.error('Failed to save Entra config:', error);
@@ -1907,22 +1901,12 @@ const EntraConfigForm: React.FC<EntraConfigFormProps> = ({ config, onSave, onCle
       console.log('🧪 Testing Entra application configuration...');
       
       // Validate that we have the minimum required fields
-      if (localConfig.useGraphPowerShell) {
-        if (!localConfig.tenantId.trim()) {
-          setTestResult({
-            success: false,
-            error: 'Tenant ID is required for Enhanced Graph Access'
-          });
-          return;
-        }
-      } else {
-        if (!localConfig.clientId.trim() || !localConfig.tenantId.trim()) {
-          setTestResult({
-            success: false,
-            error: 'Client ID and Tenant ID are required for testing'
-          });
-          return;
-        }
+      if (!localConfig.clientId.trim() || !localConfig.tenantId.trim()) {
+        setTestResult({
+          success: false,
+          error: 'Client ID and Tenant ID are required for testing'
+        });
+        return;
       }
 
       const electronAPI = window.electronAPI as any;
@@ -1943,9 +1927,10 @@ const EntraConfigForm: React.FC<EntraConfigFormProps> = ({ config, onSave, onCle
   };
 
   // Check if configuration exists either in stored config or in current local editing state
-  const isConfigured = localConfig.useGraphPowerShell
-    ? !!localConfig.tenantId.trim()
-    : (!!(config?.clientId && config?.tenantId) || !!(localConfig.clientId.trim() && localConfig.tenantId.trim()));
+  // For Enhanced Graph Access, only tenantId is required since clientId is automatically set
+  const isConfigured = localConfig.useGraphPowerShell 
+    ? !!(config?.tenantId) || !!(localConfig.tenantId.trim())
+    : !!(config?.clientId && config?.tenantId) || !!(localConfig.clientId.trim() && localConfig.tenantId.trim());
   return (
     <>
       <Grid container spacing={2}>
@@ -2369,7 +2354,7 @@ const EntraConfigForm: React.FC<EntraConfigFormProps> = ({ config, onSave, onCle
           placeholder="Enter your Azure Directory (tenant) ID"
           helperText={
             localConfig.useGraphPowerShell
-              ? "Required for Enhanced Graph Access mode"
+              ? "Required for Enhanced Graph Access mode (Client ID is automatically provided)"
               : tenantInfo.tenantDisplayName && tenantInfo.tenantDisplayName !== tenantInfo.tenantId
               ? `${tenantInfo.tenantDisplayName} - Required for custom app authentication`
               : tenantInfo.error === 'User not authenticated' || tenantInfo.error === 'Could not verify authentication'
@@ -2391,16 +2376,12 @@ const EntraConfigForm: React.FC<EntraConfigFormProps> = ({ config, onSave, onCle
                 checked={localConfig.useSystemBrowser || false}
                 onChange={async (e) => {
                   console.log('🌐 System Browser toggle changing to:', e.target.checked);
-                  const ENHANCED_GRAPH_CLIENT_ID = '14d82eec-204b-4c2f-b7e8-296a70dab67e';
-                  let newConfig = { ...localConfig, useSystemBrowser: e.target.checked };
-                  // If Enhanced Graph Access is enabled, set clientId internally
-                  if (newConfig.useGraphPowerShell) {
-                    newConfig.clientId = ENHANCED_GRAPH_CLIENT_ID;
-                  }
+                  const newConfig = { ...localConfig, useSystemBrowser: e.target.checked };
                   setLocalConfig(newConfig);
                   setIsUserEditing(true);
-                  // Auto-save if minimum required config is present
-                  if ((newConfig.useGraphPowerShell && newConfig.tenantId.trim()) || (newConfig.clientId.trim() && newConfig.tenantId.trim())) {
+                  
+                  // Auto-save only if we have the minimum required configuration (ClientID and TenantID)
+                  if (newConfig.clientId.trim() && newConfig.tenantId.trim()) {
                     try {
                       console.log('🔄 Auto-saving Entra config with system browser setting:', e.target.checked);
                       await onSave(newConfig);
@@ -2410,7 +2391,7 @@ const EntraConfigForm: React.FC<EntraConfigFormProps> = ({ config, onSave, onCle
                       console.error('❌ Failed to save system browser setting:', error);
                     }
                   } else {
-                    console.log('🔄 System browser setting changed but not auto-saving - missing required TenantID');
+                    console.log('🔄 System browser setting changed but not auto-saving - missing required ClientID/TenantID');
                     setIsUserEditing(false);
                   }
                 }}
@@ -2451,24 +2432,38 @@ const EntraConfigForm: React.FC<EntraConfigFormProps> = ({ config, onSave, onCle
             >
               Clear Configuration
             </Button>
-          )}          <Button 
-            onClick={handleTestConnection}
-            disabled={isSaving || isTestingConnection || !localConfig.clientId.trim() || !localConfig.tenantId.trim()}
-            variant="outlined"
-          >
-            {isTestingConnection ? (
-              <CircularProgress size={20} />
-            ) : (
-              `Test ${localConfig.useGraphPowerShell ? 'Enhanced Graph Access' : 'User Token'} Connection`
-            )}
-          </Button>
-          <Button 
-            onClick={handleSave}
-            variant="contained"
-            disabled={isSaving || isTestingConnection || !localConfig.clientId.trim() || !localConfig.tenantId.trim()}
-          >
-            {isSaving ? <CircularProgress size={20} /> : (isConfigured ? 'Update' : 'Save')}
-          </Button>
+          )}          <Tooltip title={localConfig.useGraphPowerShell 
+            ? "Test Enhanced Graph Access with Microsoft Graph PowerShell (requires Tenant ID)" 
+            : "Test custom app authentication (requires Client ID and Tenant ID)"
+          }>
+            <span> {/* Wrapper span needed for disabled button tooltips */}
+              <Button 
+                onClick={handleTestConnection}
+                disabled={isSaving || isTestingConnection || (localConfig.useGraphPowerShell ? !localConfig.tenantId.trim() : (!localConfig.clientId.trim() || !localConfig.tenantId.trim()))}
+                variant="outlined"
+              >
+                {isTestingConnection ? (
+                  <CircularProgress size={20} />
+                ) : (
+                  `Test ${localConfig.useGraphPowerShell ? 'Enhanced Graph Access' : 'User Token'} Connection`
+                )}
+              </Button>
+            </span>
+          </Tooltip>
+          <Tooltip title={localConfig.useGraphPowerShell 
+            ? "Enhanced Graph Access requires only Tenant ID" 
+            : "Custom app authentication requires both Client ID and Tenant ID"
+          }>
+            <span> {/* Wrapper span needed for disabled button tooltips */}
+              <Button 
+                onClick={handleSave}
+                variant="contained"
+                disabled={isSaving || isTestingConnection || (localConfig.useGraphPowerShell ? !localConfig.tenantId.trim() : (!localConfig.clientId.trim() || !localConfig.tenantId.trim()))}
+              >
+                {isSaving ? <CircularProgress size={20} /> : (isConfigured ? 'Update' : 'Save')}
+              </Button>
+            </span>
+          </Tooltip>
         </Box>
       </Grid>
       {testResult && (

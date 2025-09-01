@@ -155,12 +155,14 @@ EntraPulse Lite uses delegated permissions exclusively for secure, user-context 
 **Enhanced Graph Access (Quick Start):**
 - Uses the Microsoft Graph PowerShell client ID (14d82eec-204b-4c2f-b7e8-296a70dab67e)
 - Provides comprehensive delegated permissions out-of-the-box
-- No application registration setup required
+- **Requires only Tenant ID** - no custom app registration needed
 - Includes permissions for mail, calendar, files, directory, and more
+- **Essential for System Browser authentication** when organizational policies require it
 
 **Custom Application Mode:**
 - Uses your own Entra App Registration
 - Requires configuring delegated permissions in Azure Portal
+- **Requires both Client ID and Tenant ID**
 - Allows tailored permission scopes for specific organizational needs
 - Full control over which Microsoft Graph APIs are accessible
 
@@ -182,6 +184,7 @@ EntraPulse Lite supports flexible authentication flows to accommodate different 
 - Compatible with complex conditional access policies and device-based authentication
 - Recommended for enterprise environments with strict security requirements
 - **Network Requirement**: Port 3000 must be accessible on localhost for authentication redirect
+- **Configuration Requirement**: Tenant ID must be specified when using Enhanced Graph Access mode
 
 You can toggle between browser modes in Settings → Entra Application Settings → "Use System Browser".
 

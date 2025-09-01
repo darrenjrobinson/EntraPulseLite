@@ -63,7 +63,7 @@ EntraPulse Lite supports two delegated permission modes:
 #### Option A: Enhanced Graph Access (Quick Start)
 1. Go to **Settings** → **Entra Application Settings**
 2. Toggle **"Enhanced Graph Access (Microsoft Graph PowerShell)"** to **ON**
-3. Enter your **Tenant ID** only (optional to direct authentication to your tenant rather than the common login endpoint. The Microsoft Graph PowerShell Client ID is pre-configured)
+3. **Enter your Tenant ID** (required for Enhanced Graph Access, especially when using System Browser authentication)
 4. Click **Save Configuration**
 
 The application will automatically use the Microsoft Graph PowerShell application registration (`14d82eec-204b-4c2f-b7e8-296a70dab67e`) which provides comprehensive delegated permissions for Graph API access.
@@ -94,12 +94,18 @@ EntraPulse Lite supports two browser authentication modes to accommodate differe
 #### Option B: System Browser (CA Compliance)
 1. Go to **Settings** → **Entra Application Settings**
 2. Toggle **"Use System Browser"** to **ON**
-3. Click **Save Configuration**
+3. **Important**: If using Enhanced Graph Access mode, ensure your **Tenant ID** is configured
+4. Click **Save Configuration**
 
 > **⚠️ Network Requirements for System Browser:**
 > - **Port 3000** must be accessible on localhost for authentication redirect
 > - Ensure your firewall allows local connections to `http://localhost:3000`
 > - Corporate networks may require IT approval for localhost port access
+
+> **⚠️ Configuration Requirements for System Browser:**
+> - **Enhanced Graph Access**: Tenant ID is **required** when using System Browser authentication
+> - **Custom Application**: Both Client ID and Tenant ID are required
+> - Without proper Tenant ID configuration, System Browser authentication may fail
 
 **When to use System Browser:**
 - ✅ Your organization requires Certificate Authority (CA) compliance
@@ -143,6 +149,7 @@ Your EntraPulse Lite is now configured with:
 - **CA compliance errors**: Enable "Use System Browser" for Certificate Authority compliance
 - **Hardware security key not working**: Enable "Use System Browser" for FIDO2/WebAuthn support
 - **System Browser redirect fails**: Ensure port 3000 is not blocked by firewall or corporate network policies
+- **System Browser + Enhanced Graph Access**: Ensure Tenant ID is configured in Enhanced Graph Access settings
 
 **❌ "LLM Provider Error" or no responses:**
 - Verify your API key is correct (check for extra spaces)
@@ -151,6 +158,7 @@ Your EntraPulse Lite is now configured with:
 
 **❌ "Enhanced Graph Access not working":**
 - Double-check your Tenant ID (should be a GUID format like `12345678-1234-1234-1234-123456789abc`)
+- **Tenant ID is required for Enhanced Graph Access**, especially when using System Browser authentication
 - Ensure the Microsoft Graph PowerShell app is not blocked in your tenant
 - Contact your IT administrator - they may need to consent to the application
 
@@ -218,13 +226,13 @@ All configuration is done through the application UI:
 **Authentication Modes (Delegated Permissions Only):**
 1. **Basic User Token**: Uses default Microsoft authentication (no custom Client ID needed)
 2. **Custom User Token**: Uses your custom app registration with delegated permissions (requires Client ID + Tenant ID)
-3. **Enhanced Graph Access**: Uses Microsoft Graph PowerShell client ID with broader permissions (requires Tenant ID only)
+3. **Enhanced Graph Access**: Uses Microsoft Graph PowerShell client ID with broader permissions (**requires Tenant ID only**)
 
 **Important:** Enhanced Graph Access overrides any custom Client ID configuration and uses the well-known Microsoft Graph PowerShell client ID (14d82eec-204b-4c2f-b7e8-296a70dab67e).
 
 **Authentication Field Requirements:**
 - **Client ID**: Optional - only used when Enhanced Graph Access is disabled
-- **Tenant ID**: Required for both custom app authentication and Enhanced Graph Access
+- **Tenant ID**: **Required for Enhanced Graph Access mode** and custom app authentication (especially important for System Browser authentication)
 
 No environment files are needed - all settings are stored securely using `electron-store` with encryption.
 
@@ -357,8 +365,9 @@ Uses the Microsoft Graph PowerShell application for broader API access:
 - **Client ID**: `14d82eec-204b-4c2f-b7e0-296602dcde65` (pre-configured)
 - **Token Type**: Delegated permissions with user context
 - **Permissions**: Broader delegated permissions for comprehensive Graph access
-- **Setup**: Only requires your Tenant ID in Settings → Entra Configuration
+- **Setup**: **Requires your Tenant ID** in Settings → Entra Configuration
 - **Use Case**: Best balance of permissions and ease of setup
+- **System Browser**: Tenant ID is essential when using System Browser authentication for CA compliance
 
 ### Custom User Token Mode (Advanced)
 Uses your custom app registration for tailored delegated permissions:
