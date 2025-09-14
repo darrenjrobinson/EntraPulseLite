@@ -130,7 +130,7 @@ describe('Lokka MCP Tool Discovery', () => {
         capabilities: {},
         clientInfo: {
           name: 'EntraPulseLite-Test',
-          version: '1.0.0'
+          version: '1.0.1'
         }
       }
     };

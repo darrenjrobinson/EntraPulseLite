@@ -1,7 +1,7 @@
 {
   "name": "entrapulselite",
   "productName": "EntraPulse Lite",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A freemium desktop application for natural language querying of Microsoft Graph APIs through local LLM integration",
   "main": "dist/main.js",
   "homepage": "https://github.com/darrenjrobinson/EntraPulseLite",

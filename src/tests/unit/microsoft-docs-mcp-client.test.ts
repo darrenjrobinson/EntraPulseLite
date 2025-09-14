@@ -87,7 +87,7 @@ describe('MicrosoftDocsMCPClient Unit Tests', () => {
           headers: expect.objectContaining({
             'Content-Type': 'application/json',
             'Accept': 'application/json, text/event-stream',
-            'User-Agent': 'MCP-Client/1.0.0'
+            'User-Agent': 'MCP-Client/1.0.1'
           }),
           body: expect.stringContaining('"method":"tools/list"')
         })
