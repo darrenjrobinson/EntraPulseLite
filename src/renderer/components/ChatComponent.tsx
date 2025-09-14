@@ -256,7 +256,20 @@ export const ChatComponent: React.FC<ChatComponentProps> = () => {
         hasAccessToken: !!(token && token.accessToken)
       });
       setAuthToken(token);
-      const currentUser = await window.electronAPI.auth.getCurrentUser();      setUser(currentUser);
+      
+      console.log('👤 [FRONTEND] Calling getCurrentUser()...');
+      const currentUser = await window.electronAPI.auth.getCurrentUser();
+      console.log('👤 [FRONTEND] getCurrentUser() result:', {
+        hasUser: !!currentUser,
+        userDetails: currentUser ? {
+          id: currentUser.id,
+          displayName: currentUser.displayName,
+          mail: currentUser.mail,
+          userPrincipalName: currentUser.userPrincipalName
+        } : null
+      });
+      
+      setUser(currentUser);
       setError(null);
         // Force a check of LLM availability
       forceLLMCheck();
@@ -880,7 +893,7 @@ What would you like to explore?`,
               <Box sx={{ flex: 1, width: 'calc(100% - 56px)', maxWidth: 'calc(100% - 56px)' }}>                <ListItemText
                   primary={
                     <Box display="flex" alignItems="center" gap={1} mb={1}>
-                      <Typography variant="subtitle2">
+                      <Typography variant="subtitle2" color="text.primary">
                         {message.role === 'user' ? 'You' : 'EntraPulse Assistant'}
                       </Typography>
                       <Typography variant="caption" color="textSecondary">

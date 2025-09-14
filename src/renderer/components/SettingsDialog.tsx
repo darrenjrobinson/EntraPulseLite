@@ -177,7 +177,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
-      <DialogTitle>LLM Settings</DialogTitle>
+      <DialogTitle>EntraPulse Settings</DialogTitle>
       <DialogContent>
         <Box sx={{ mt: 2 }}>
           

@@ -25,7 +25,7 @@ function getAppVersion(): string {
     return packageJson.version;
   } catch (error) {
     console.error('Failed to read version from package.json:', error);
-    return '1.0.0-beta.3'; // Fallback version
+    return '1.0.1'; // Fallback version
   }
 }
 
@@ -33,6 +33,10 @@ function getAppVersion(): string {
 if (process.platform === 'win32') {
   app.setAppUserModelId('com.darrenjrobinson.entrapulselite');
 }
+
+// Suppress cache-related warnings/errors that don't affect functionality
+app.commandLine.appendSwitch('disable-background-timer-throttling');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
 
 class EntraPulseLiteApp {
   private mainWindow: BrowserWindow | null = null;
@@ -96,6 +100,11 @@ class EntraPulseLiteApp {
     console.log('[Main] ConfigService initialized');
     this.sendDebugToRenderer('[Main] ConfigService initialized');
     
+    // Set service-level access for the main process (trusted environment) BEFORE reading config
+    this.configService.setServiceLevelAccess(true);
+    console.log('[Main] Service-level access enabled for main process');
+    this.sendDebugToRenderer('[Main] Service-level access enabled for main process');
+    
     // Get authentication configuration (stored config takes precedence)
     console.log('[Main] ===== DEBUGGING AUTH INITIALIZATION =====');
     this.sendDebugToRenderer('[Main] ===== DEBUGGING AUTH INITIALIZATION =====');
@@ -117,9 +126,6 @@ class EntraPulseLiteApp {
       tenantIdExists: Boolean(authConfig.tenantId),
       clientSecretExists: Boolean(authConfig.clientSecret)
     });
-    
-    // Set service-level access for the main process (trusted environment)
-    this.configService.setServiceLevelAccess(true);
     
     // Set authentication as verified since we are in the main process
     this.configService.setAuthenticationVerified(true);
@@ -879,10 +885,44 @@ class EntraPulseLiteApp {
       
       console.log('🔐 [AUTH-HANDLER] auth:login IPC handler called!');
       try {
-        console.log('🔐 [AUTH-HANDLER] Starting authService.login()...');
-        this.mainWindow?.webContents.send('main-debug', '🔐 [AUTH-HANDLER] Starting authService.login()...');
+        // Temporarily enable access to configuration during login process
+        // This is required to read the system browser setting before authentication occurs
+        this.configService.setServiceLevelAccess(true);
+        this.configService.setAuthenticationVerified(true);
         
-        const result = await this.authService.login();
+        console.log('🔐 [AUTH-HANDLER] Temporarily enabled config access for system browser reading');
+        
+        // Check if system browser should be used from Entra configuration
+        const storedEntraConfig = this.configService.getEntraConfig();
+        const useSystemBrowser = storedEntraConfig?.useSystemBrowser || false;
+        
+        console.log('🔐 [AUTH-HANDLER] Entra config debug:', {
+          hasConfig: !!storedEntraConfig,
+          useSystemBrowser: storedEntraConfig?.useSystemBrowser,
+          finalUseSystemBrowser: useSystemBrowser
+        });
+        
+        // Reset authentication verification (will be set to true after successful login)
+        // Keep service-level access true since we're in the main process
+        this.configService.setAuthenticationVerified(false);
+        this.configService.setServiceLevelAccess(true);
+        
+        console.log('🔐 [AUTH-HANDLER] Starting authService.login()...');
+        console.log('🌐 [AUTH-HANDLER] Using system browser:', useSystemBrowser ? 'Yes (CA compliance mode)' : 'No (embedded browser)');
+        
+        // Debug current configuration before login
+        const currentAuthConfig = await this.getAuthConfiguration();
+        console.log('🔐 [AUTH-HANDLER] Current auth config before login:', {
+          clientId: currentAuthConfig.clientId.substring(0, 12) + '...',
+          tenantId: currentAuthConfig.tenantId.substring(0, 8) + '...',
+          actualConfig: this.config.auth.clientId.substring(0, 12) + '...'
+        });
+        
+        this.mainWindow?.webContents.send('main-debug', '🔐 [AUTH-HANDLER] Starting authService.login()...');
+        this.mainWindow?.webContents.send('main-debug', `🌐 [AUTH-HANDLER] Browser mode: ${useSystemBrowser ? 'System (CA compliant)' : 'Embedded'}`);
+        this.mainWindow?.webContents.send('main-debug', `🔐 [AUTH-HANDLER] Client ID: ${currentAuthConfig.clientId.substring(0, 12)}...`);
+        
+        const result = await this.authService.login(useSystemBrowser);
         
         console.log('🔐 [AUTH-HANDLER] authService.login() completed:', {
           success: !!result,
@@ -1002,7 +1042,7 @@ class EntraPulseLiteApp {
                     console.log(`🔧 [ACCESS-TOKEN] Token preview: ${token.accessToken.substring(0, 50)}...`);
                     env = {
                       TENANT_ID: 'common', // Use 'common' for multi-tenant Enhanced Graph Access
-                      CLIENT_ID: process.env.MSAL_CLIENT_ID || 'ad6e8b1b-4ced-4088-bd72-d3d02e71df4e', // Current client ID
+                      CLIENT_ID: '14d82eec-204b-4c2f-b7e8-296a70dab67e', // Microsoft Graph PowerShell client ID
                       ACCESS_TOKEN: token.accessToken,
                       USE_INTERACTIVE: 'false', // Use provided token, don't authenticate interactively
                       USE_CLIENT_TOKEN: 'true' // Required for Lokka to use client-provided-token mode
@@ -1011,7 +1051,7 @@ class EntraPulseLiteApp {
                     console.error('❌ Failed to get user access token for Enhanced Graph Access, falling back to client token mode');
                     env = {
                       TENANT_ID: 'common',
-                      CLIENT_ID: process.env.MSAL_CLIENT_ID || 'ad6e8b1b-4ced-4088-bd72-d3d02e71df4e',
+                      CLIENT_ID: '14d82eec-204b-4c2f-b7e8-296a70dab67e', // Microsoft Graph PowerShell client ID
                       USE_CLIENT_TOKEN: 'true'
                     };
                   }
@@ -1020,7 +1060,7 @@ class EntraPulseLiteApp {
                   console.log('🔧 Falling back to client token mode');
                   env = {
                     TENANT_ID: 'common',
-                    CLIENT_ID: process.env.MSAL_CLIENT_ID || 'ad6e8b1b-4ced-4088-bd72-d3d02e71df4e',
+                    CLIENT_ID: '14d82eec-204b-4c2f-b7e8-296a70dab67e', // Microsoft Graph PowerShell client ID
                     USE_CLIENT_TOKEN: 'true'
                   };
                 }
@@ -1876,7 +1916,7 @@ class EntraPulseLiteApp {
         return this.autoUpdaterService.getCurrentVersion();
       } catch (error) {
         console.error('Get current version failed:', error);
-        return '1.0.0-beta.3';
+        return '1.0.1';
       }
     });
 
@@ -1913,7 +1953,55 @@ class EntraPulseLiteApp {
       try {
         const { UnifiedLLMService } = require('../llm/UnifiedLLMService');
         const testService = new UnifiedLLMService(testConfig, this.mcpClient);
-        return await testService.isAvailable();
+        
+        // First check basic API availability
+        const isApiAvailable = await testService.isAvailable();
+        if (!isApiAvailable) {
+          console.log('LLM connection test failed: API not available');
+          return false;
+        }
+        
+        // For cloud providers, also validate the specific model
+        if (testConfig.provider === 'openai' || testConfig.provider === 'anthropic' || 
+            testConfig.provider === 'gemini' || testConfig.provider === 'azure-openai') {
+          
+          console.log(`Testing model "${testConfig.model}" for provider "${testConfig.provider}"`);
+          
+          // Get available models and check if the configured model is valid
+          try {
+            const availableModels = await testService.getAvailableModels();
+            
+            if (availableModels.length === 0) {
+              console.warn('LLM connection test: Could not fetch models from provider, but API is available');
+              // If we can't fetch models but API is available, consider it a successful connection
+              // The model validation warning will still show in the UI
+              return true;
+            }
+            
+            // Check if the configured model exists in available models
+            const modelExists = availableModels.some((model: string) => 
+              model === testConfig.model || 
+              model.toLowerCase() === testConfig.model.toLowerCase()
+            );
+            
+            if (!modelExists) {
+              console.log(`LLM connection test failed: Model "${testConfig.model}" not found in available models:`, availableModels.slice(0, 5));
+              return false;
+            }
+            
+            console.log(`LLM connection test successful: Model "${testConfig.model}" is available`);
+            return true;
+            
+          } catch (modelError) {
+            console.warn('LLM connection test: Error fetching models for validation:', modelError);
+            // If model fetching fails but API is available, consider it successful
+            // This handles cases where the model endpoint is different or has different permissions
+            return true;
+          }
+        }
+        
+        // For local providers, just return the API availability result
+        return isApiAvailable;
 
       } catch (error) {
         console.error('LLM connection test failed:', error);
@@ -2157,74 +2245,39 @@ class EntraPulseLiteApp {
           
           // Primary: Try to get tenant display name from Graph API /organization endpoint
           try {
-            // Use the Lokka MCP to get organization details
-            // Important: Call without any filter - let it return the organization for the authenticated tenant
-            if (this.mcpClient) {
-              console.log('🔍 Calling /organization endpoint without filters for tenant:', payload.tid);
-              
-              const orgInfo = await this.mcpClient.callTool('external-lokka', 'microsoft_graph_query', {
-                apiType: 'graph',
-                path: '/organization',
-                method: 'get'
-                // No queryParams at all - let it return the org for the authenticated tenant
-              });
-              
-              console.log('🔍 Raw organization info response:', orgInfo);
-              
-              let parsedContent;
-              
-              // Handle different response formats from MCP
-              if (orgInfo?.content) {
-                if (Array.isArray(orgInfo.content) && orgInfo.content.length > 0) {
-                  // Handle array format like [{type: 'text', text: 'Result for graph API...'}]
-                  const firstContent = orgInfo.content[0];
-                  if (firstContent?.type === 'text' && firstContent?.text) {
-                    try {
-                      // Extract JSON from text response like "Result for graph API (v1.0) - get /organization:\n\n{...}"
-                      const textContent = firstContent.text;
-                      const jsonStart = textContent.indexOf('{');
-                      if (jsonStart !== -1) {
-                        const jsonString = textContent.substring(jsonStart);
-                        parsedContent = JSON.parse(jsonString);
-                        console.log('✅ Successfully extracted JSON from text response');
-                      } else {
-                        console.warn('Could not find JSON start in text response');
-                      }
-                    } catch (parseError) {
-                      console.warn('Could not parse JSON from text response:', parseError);
-                    }
-                  }
-                } else if (typeof orgInfo.content === 'string') {
-                  try {
-                    parsedContent = JSON.parse(orgInfo.content);
-                  } catch (parseError) {
-                    console.warn('Could not parse organization info string:', parseError);
-                  }
-                } else if (typeof orgInfo.content === 'object') {
-                  parsedContent = orgInfo.content;
-                }
-              } else if (orgInfo && typeof orgInfo === 'object') {
-                // Sometimes the response might be the data directly
-                parsedContent = orgInfo;
+            console.log('🔍 Making direct Graph API call to /organization endpoint for tenant:', payload.tid);
+            
+            // Make direct Graph API call using the access token
+            const response = await fetch('https://graph.microsoft.com/v1.0/organization', {
+              method: 'GET',
+              headers: {
+                'Authorization': `Bearer ${token.accessToken}`,
+                'Content-Type': 'application/json'
               }
+            });
+            
+            if (response.ok) {
+              const orgData = await response.json();
+              console.log('🔍 Direct Graph API organization response:', orgData);
               
-              console.log('🔍 Parsed organization content:', parsedContent);
-              
-              if (parsedContent?.value && Array.isArray(parsedContent.value) && parsedContent.value.length > 0) {
-                const org = parsedContent.value[0];
-                console.log('🔍 Organization object:', org);
+              if (orgData?.value && Array.isArray(orgData.value) && orgData.value.length > 0) {
+                const org = orgData.value[0];
+                console.log('🔍 Organization object from direct API:', org);
                 if (org.displayName) {
                   tenantDisplayName = org.displayName;
-                  console.log('✅ Retrieved tenant display name from Graph API:', tenantDisplayName);
+                  console.log('✅ Retrieved tenant display name from direct Graph API:', tenantDisplayName);
                 } else {
                   console.warn('⚠️ Organization object found but no displayName property:', org);
                 }
               } else {
-                console.warn('⚠️ Unexpected organization response structure:', parsedContent);
+                console.warn('⚠️ Unexpected organization response structure from direct API:', orgData);
               }
+            } else {
+              const errorText = await response.text();
+              console.warn('❌ Direct Graph API organization call failed:', response.status, errorText);
             }
           } catch (graphError) {
-            console.warn('Could not retrieve organization info from Graph API:', graphError);
+            console.warn('Could not retrieve organization info from direct Graph API:', graphError);
           }
           
           // Secondary: Check for tenant_display_name claim in token (rare but valid)
@@ -2748,6 +2801,15 @@ class EntraPulseLiteApp {
     console.log('[Main] About to call getLokkaMCPEnvironment...');
     const lokkaEnv = this.configService.getLokkaMCPEnvironment(userToken);
     console.log('[Main] getLokkaMCPEnvironment returned:', lokkaEnv);
+    
+    // Debug the exact environment variables being passed to Lokka
+    console.log('[Main] 🔍 Lokka environment variables being set:', {
+      CLIENT_ID: lokkaEnv.CLIENT_ID ? lokkaEnv.CLIENT_ID.substring(0, 12) + '...' : 'not set',
+      TENANT_ID: lokkaEnv.TENANT_ID ? lokkaEnv.TENANT_ID.substring(0, 8) + '...' : 'not set',
+      USE_CLIENT_TOKEN: lokkaEnv.USE_CLIENT_TOKEN,
+      hasAccessToken: !!lokkaEnv.ACCESS_TOKEN,
+      totalEnvVars: Object.keys(lokkaEnv).length
+    });
     
     console.log('[Main] About to call isLokkaMCPConfigured...');
     const isLokkaConfigured = this.configService.isLokkaMCPConfigured();

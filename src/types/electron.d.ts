@@ -1,7 +1,7 @@
 // TypeScript definitions for electronAPI exposed via preload script
 
 interface AuthAPI {
-  login(useRedirectFlow?: boolean): Promise<any>;
+  login(useSystemBrowser?: boolean): Promise<any>;
   logout(): Promise<void>;
   getToken(): Promise<any>;
   getCurrentUser(): Promise<any>;

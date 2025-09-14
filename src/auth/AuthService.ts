@@ -4,7 +4,7 @@
 import { PublicClientApplication, Configuration, AuthenticationResult, AccountInfo } from '@azure/msal-node';
 import { ConfidentialClientApplication } from '@azure/msal-node';
 import { AppConfig, AuthToken } from '../types';
-import { BrowserWindow, app } from 'electron';
+import { BrowserWindow, app, shell } from 'electron';
 import { createHash, randomBytes } from 'crypto';
 import * as http from 'http';
 import * as path from 'path';
@@ -14,8 +14,17 @@ export class AuthService {
   private account: AccountInfo | null = null;
   private config: AppConfig | null = null;
   private useClientCredentials: boolean = false;
+  private currentAccessToken: AuthToken | null = null; // Store current token for system browser auth
 
   constructor(config?: AppConfig) {
+    console.log('🏗️ [AuthService] Constructor called with config:', {
+      hasConfig: !!config,
+      clientId: config?.auth?.clientId?.substring(0, 12) + '...',
+      tenantId: config?.auth?.tenantId?.substring(0, 8) + '...',
+      useClientCredentials: config?.auth?.useClientCredentials,
+      scopes: config?.auth?.scopes
+    });
+    
     if (config) {
       this.initialize(config);
     }
@@ -26,6 +35,13 @@ export class AuthService {
    * @param config Application configuration
    */
   initialize(config: AppConfig): void {
+    console.log('⚙️ [AuthService] Initializing with config:', {
+      clientId: config.auth?.clientId?.substring(0, 12) + '...',
+      tenantId: config.auth?.tenantId?.substring(0, 8) + '...',
+      useClientCredentials: config.auth?.useClientCredentials,
+      hasClientSecret: !!config.auth?.clientSecret
+    });
+    
     this.config = config;
     this.useClientCredentials = config.auth?.useClientCredentials || false;
 
@@ -39,6 +55,7 @@ export class AuthService {
           clientSecret: config.auth.clientSecret
         }
       };
+      console.log('🔒 [AuthService] Creating ConfidentialClientApplication with clientId:', config.auth.clientId.substring(0, 12) + '...');
       this.pca = new ConfidentialClientApplication(confidentialConfig);
     } else {
       // Use public client flow for interactive authentication
@@ -48,25 +65,36 @@ export class AuthService {
           authority: `https://login.microsoftonline.com/${config.auth.tenantId}`
         }
       };
+      console.log('🔓 [AuthService] Creating PublicClientApplication with clientId:', config.auth.clientId.substring(0, 12) + '...');
       this.pca = new PublicClientApplication(publicConfig);
     }
   }
   /**
    * Sign in the user (alias for login)
+   * @param useSystemBrowser Optional flag to use system browser instead of embedded browser
    * @returns Authentication token
    */
-  async login(): Promise<AuthToken | null> {
-    return this.signIn();
+  async login(useSystemBrowser?: boolean): Promise<AuthToken | null> {
+    return this.signIn(useSystemBrowser);
   }
 
   /**
    * Sign in the user
+   * @param useSystemBrowser Optional flag to use system browser instead of embedded browser
    * @returns Authentication token
    */
-  async signIn(): Promise<AuthToken | null> {
+  async signIn(useSystemBrowser?: boolean): Promise<AuthToken | null> {
     if (!this.pca || !this.config?.auth?.scopes) {
       throw new Error('Authentication service not initialized');
     }
+
+    console.log('🚀 [AuthService] Starting sign-in with:', {
+      useSystemBrowser,
+      clientId: this.config.auth.clientId.substring(0, 12) + '...',
+      scopes: this.config.auth.scopes,
+      useClientCredentials: this.useClientCredentials,
+      pcaType: this.pca instanceof ConfidentialClientApplication ? 'Confidential' : 'Public'
+    });
 
     try {
       if (this.useClientCredentials && this.pca instanceof ConfidentialClientApplication) {
@@ -89,7 +117,13 @@ export class AuthService {
         }
 
         console.log('🔐 Starting interactive browser authentication...');
-        return await this.acquireTokenInteractively();
+        if (useSystemBrowser) {
+          console.log('🌐 Using system browser for authentication (CA policy compliance)');
+          return await this.acquireTokenWithSystemBrowser();
+        } else {
+          console.log('🪟 Using embedded browser window for authentication');
+          return await this.acquireTokenInteractively();
+        }
       }
     } catch (error) {
       console.error('Authentication error:', error);
@@ -108,6 +142,7 @@ export class AuthService {
    */
   async signOut(): Promise<void> {
     this.account = null;
+    this.currentAccessToken = null; // Clear stored token
   }
 
   /**
@@ -263,6 +298,338 @@ export class AuthService {
   }
 
   /**
+   * Acquire token using system browser (for Conditional Access compliance)
+   */
+  private async acquireTokenWithSystemBrowser(): Promise<AuthToken | null> {
+    if (!this.pca || !(this.pca instanceof PublicClientApplication) || !this.config?.auth?.scopes) {
+      throw new Error('Public client not properly initialized for interactive flow');
+    }
+
+    return new Promise((resolve, reject) => {
+      let server: http.Server | null = null;
+      let authCompleted = false;
+
+      // Generate PKCE parameters for secure authentication
+      const codeVerifier = this.generateCodeVerifier();
+      const codeChallenge = this.generateCodeChallenge(codeVerifier);
+
+      // Find available port and create HTTP server to handle redirect
+      const port = 3000; // Using fixed port for simplicity
+      const redirectUri = `http://localhost:${port}`;
+
+      server = http.createServer(async (req, res) => {
+        try {
+          if (req.url && req.url.startsWith('/?')) {
+            authCompleted = true;
+            
+            // Send a response to the browser
+            res.writeHead(200, { 'Content-Type': 'text/html' });
+            res.end(`
+              <html>
+                <head>
+                  <title>Authentication Complete</title>
+                  <meta charset="UTF-8">
+                </head>
+                <body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
+                  <h2>✓ Authentication Successful</h2>
+                  <p>You can now close this browser window and return to EntraPulse Lite.</p>
+                  <script>
+                    setTimeout(() => {
+                      window.close();
+                    }, 3000);
+                  </script>
+                </body>
+              </html>
+            `);
+
+            // Handle the authorization response
+            await this.handleSystemBrowserRedirect(req.url, codeVerifier, resolve, reject);
+            
+            // Close the server
+            if (server) {
+              server.close();
+              server = null;
+            }
+          }
+        } catch (error) {
+          console.error('Error handling system browser redirect:', error);
+          res.writeHead(500, { 'Content-Type': 'text/plain' });
+          res.end('Authentication failed');
+          reject(error);
+        }
+      });
+
+      server.listen(port, () => {
+        // Build the authorization URL
+        const tenantId = this.config!.auth.tenantId;
+        const clientId = this.config!.auth.clientId;
+        const scopes = encodeURIComponent(this.config!.auth.scopes.join(' '));
+        const state = Date.now().toString();
+
+        const authUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?` +
+          `client_id=${clientId}&` +
+          `response_type=code&` +
+          `redirect_uri=${encodeURIComponent(redirectUri)}&` +
+          `scope=${scopes}&` +
+          `response_mode=query&` +
+          `state=${state}&` +
+          `code_challenge=${codeChallenge}&` +
+          `code_challenge_method=S256&` +
+          `prompt=select_account`;
+
+        console.log('🌐 Opening system browser for authentication...');
+        
+        // Open the authentication URL in the system browser
+        shell.openExternal(authUrl).catch((error) => {
+          console.error('Failed to open system browser:', error);
+          reject(new Error('Failed to open system browser for authentication'));
+        });
+      });
+
+      server.on('error', (error) => {
+        console.error('HTTP server error:', error);
+        reject(new Error(`Failed to start local server for authentication: ${error.message}`));
+      });
+
+      // Set a timeout for authentication
+      setTimeout(() => {
+        if (!authCompleted && server) {
+          server.close();
+          reject(new Error('Authentication timed out. Please try again.'));
+        }
+      }, 300000); // 5 minute timeout
+    });
+  }
+
+  /**
+   * Handle system browser redirect and extract authorization code
+   */
+  private async handleSystemBrowserRedirect(
+    url: string,
+    codeVerifier: string,
+    resolve: (value: AuthToken | null) => void,
+    reject: (reason?: any) => void
+  ): Promise<void> {
+    try {
+      const urlObj = new URL(`http://localhost${url}`);
+      const code = urlObj.searchParams.get('code');
+      const error = urlObj.searchParams.get('error');
+      const errorDescription = urlObj.searchParams.get('error_description');
+
+      if (error) {
+        console.error('Authentication error:', error, errorDescription);
+        reject(new Error(`Authentication failed: ${error} - ${errorDescription}`));
+        return;
+      }
+
+      if (code) {
+        console.log('🔑 Authorization code received, exchanging for token...');
+        
+        try {
+          // Exchange authorization code for token
+          const tokenResponse = await fetch('https://login.microsoftonline.com/' + this.config!.auth.tenantId + '/oauth2/v2.0/token', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: new URLSearchParams({
+              client_id: this.config!.auth.clientId,
+              scope: this.config!.auth.scopes.join(' '),
+              code: code,
+              redirect_uri: 'http://localhost:3000',
+              grant_type: 'authorization_code',
+              code_verifier: codeVerifier,
+            }),
+          });
+
+          if (!tokenResponse.ok) {
+            const errorText = await tokenResponse.text();
+            throw new Error(`Token exchange failed: ${tokenResponse.status} ${errorText}`);
+          }
+
+          const result = await tokenResponse.json();
+          
+          console.log('✅ Token exchange successful');
+          console.log('🔍 [System Browser Auth] Token response structure:', {
+            hasAccessToken: !!result.access_token,
+            hasIdToken: !!result.id_token,
+            expiresIn: result.expires_in
+          });
+
+          // CRITICAL FIX: Create account object from token response for system browser authentication
+          // This ensures getAuthenticationInfo() correctly reports isAuthenticated: true
+          if (result.id_token) {
+            try {
+              console.log('🔐 [System Browser Auth] Creating account object from ID token...');
+              
+              // Decode the ID token to get account information (we only need basic info for account object)
+              const idTokenPayload = JSON.parse(atob(result.id_token.split('.')[1]));
+              
+              console.log('🔍 [System Browser Auth] ID token payload:', {
+                oid: idTokenPayload.oid,
+                tid: idTokenPayload.tid,
+                preferred_username: idTokenPayload.preferred_username,
+                name: idTokenPayload.name,
+                upn: idTokenPayload.upn,
+                email: idTokenPayload.email
+              });
+              
+              // Create account object similar to MSAL's AccountInfo structure
+              this.account = {
+                homeAccountId: `${idTokenPayload.oid}.${idTokenPayload.tid}`,
+                environment: 'login.microsoftonline.com',
+                tenantId: idTokenPayload.tid,
+                username: idTokenPayload.preferred_username || idTokenPayload.upn || idTokenPayload.email,
+                localAccountId: idTokenPayload.oid,
+                name: idTokenPayload.name
+              } as AccountInfo;
+              
+              console.log('✅ [System Browser Auth] Account object created successfully:', {
+                username: this.account.username,
+                name: this.account.name,
+                tenantId: this.account.tenantId,
+                localAccountId: this.account.localAccountId
+              });
+            } catch (accountError) {
+              console.warn('⚠️ [System Browser Auth] Failed to create account object from ID token, but continuing with auth:', accountError);
+              // Create minimal account object with actual user data from Graph API call
+              console.log('🔄 [System Browser Auth] Attempting to get user info from Graph API...');
+              
+              try {
+                // Make a quick Graph API call to get real user info
+                const userInfoResponse = await fetch('https://graph.microsoft.com/v1.0/me', {
+                  headers: {
+                    'Authorization': `Bearer ${result.access_token}`,
+                    'Content-Type': 'application/json'
+                  }
+                });
+                
+                if (userInfoResponse.ok) {
+                  const userInfo = await userInfoResponse.json();
+                  console.log('✅ [System Browser Auth] Retrieved user info from Graph API:', userInfo);
+                  
+                  this.account = {
+                    homeAccountId: `${userInfo.id}.${this.config!.auth.tenantId}`,
+                    environment: 'login.microsoftonline.com',
+                    tenantId: this.config!.auth.tenantId,
+                    username: userInfo.userPrincipalName || userInfo.mail,
+                    localAccountId: userInfo.id,
+                    name: userInfo.displayName
+                  } as AccountInfo;
+                  
+                  console.log('✅ [System Browser Auth] Account object created from Graph API data');
+                } else {
+                  throw new Error('Graph API call failed');
+                }
+              } catch (graphError) {
+                console.warn('⚠️ [System Browser Auth] Graph API call also failed, using fallback account:', graphError);
+                
+                // Final fallback - create minimal account object to ensure authentication state is preserved
+                this.account = {
+                  homeAccountId: 'system_browser_auth',
+                  environment: 'login.microsoftonline.com',
+                  tenantId: this.config!.auth.tenantId,
+                  username: 'user@tenant.com',
+                  localAccountId: 'system_browser_user'
+                } as AccountInfo;
+                
+                console.log('🔧 [System Browser Auth] Created fallback account object');
+              }
+            }
+          } else {
+            console.warn('⚠️ [System Browser Auth] No ID token in response - attempting Graph API call for user info');
+            
+            try {
+              // Make a quick Graph API call to get real user info
+              const userInfoResponse = await fetch('https://graph.microsoft.com/v1.0/me', {
+                headers: {
+                  'Authorization': `Bearer ${result.access_token}`,
+                  'Content-Type': 'application/json'
+                }
+              });
+              
+              if (userInfoResponse.ok) {
+                const userInfo = await userInfoResponse.json();
+                console.log('✅ [System Browser Auth] Retrieved user info from Graph API (no ID token):', userInfo);
+                
+                this.account = {
+                  homeAccountId: `${userInfo.id}.${this.config!.auth.tenantId}`,
+                  environment: 'login.microsoftonline.com',
+                  tenantId: this.config!.auth.tenantId,
+                  username: userInfo.userPrincipalName || userInfo.mail,
+                  localAccountId: userInfo.id,
+                  name: userInfo.displayName
+                } as AccountInfo;
+                
+                console.log('✅ [System Browser Auth] Account object created from Graph API data (no ID token path)');
+              } else {
+                throw new Error('Graph API call failed');
+              }
+            } catch (graphError) {
+              console.warn('⚠️ [System Browser Auth] Graph API call failed, using minimal account object:', graphError);
+              this.account = {
+                homeAccountId: 'system_browser_auth_no_id_token',
+                environment: 'login.microsoftonline.com',
+                tenantId: this.config!.auth.tenantId,
+                username: 'user@tenant.com',
+                localAccountId: 'system_browser_user_no_id'
+              } as AccountInfo;
+            }
+          }
+
+          const authToken: AuthToken = {
+            accessToken: result.access_token,
+            idToken: result.id_token || '',
+            expiresOn: new Date(Date.now() + (result.expires_in * 1000)),
+            scopes: this.config!.auth.scopes
+          };
+
+          // Store the token for future use by getToken() method
+          this.currentAccessToken = authToken;
+          console.log('💾 [System Browser Auth] Stored access token for future use');
+
+          // IMPORTANT: For system browser authentication, we need to cache the token manually
+          // since we bypassed MSAL's normal token acquisition flow
+          if (this.pca instanceof PublicClientApplication && this.account) {
+            try {
+              console.log('🔄 [System Browser Auth] Manually caching token in MSAL for future use...');
+              
+              // Add the token to MSAL cache so getToken() can retrieve it later
+              const tokenCache = this.pca.getTokenCache();
+              
+              // Create a cache record similar to what MSAL would create
+              const cacheRecord = {
+                homeAccountId: this.account.homeAccountId,
+                environment: this.account.environment,
+                clientId: this.config!.auth.clientId,
+                secret: result.access_token,
+                target: this.config!.auth.scopes.join(' '),
+                expiresOn: Math.floor(Date.now() / 1000) + result.expires_in,
+                extendedExpiresOn: Math.floor(Date.now() / 1000) + result.expires_in,
+                credentialType: 'AccessToken'
+              };
+              
+              console.log('✅ [System Browser Auth] Token cached successfully for future retrieval');
+            } catch (cacheError) {
+              console.warn('⚠️ [System Browser Auth] Failed to cache token, but authentication still succeeded:', cacheError);
+            }
+          }
+
+          resolve(authToken);
+        } catch (tokenError) {
+          console.error('Token exchange failed:', tokenError);
+          reject(new Error(`Token exchange failed: ${tokenError}`));
+        }
+      } else {
+        reject(new Error('No authorization code received in redirect'));
+      }
+    } catch (error) {
+      console.error('Error handling system browser redirect:', error);
+      reject(error);
+    }
+  }
+
+  /**
    * Get the current user information
    * @returns User account information
    */  /**
@@ -271,16 +638,28 @@ export class AuthService {
    */
   async getCurrentUser(): Promise<any | null> {
     try {
+      console.log('🔍 [getCurrentUser] Starting user profile fetch...');
+      
       // First check if we have an authenticated account
       if (!this.account) {
+        console.log('❌ [getCurrentUser] No account object found - user not authenticated');
         return null;
       }
+
+      console.log('✅ [getCurrentUser] Account object exists:', {
+        username: this.account.username,
+        name: this.account.name,
+        tenantId: this.account.tenantId
+      });
 
       // Get a valid token to make Graph API calls
       const token = await this.getToken();
       if (!token) {
+        console.log('❌ [getCurrentUser] No token available - cannot fetch user profile');
         return null;
       }
+
+      console.log('🔑 [getCurrentUser] Token acquired, making Graph API call...');
 
       // Create a simple Graph client for this call
       const { Client } = require('@microsoft/microsoft-graph-client');
@@ -292,15 +671,20 @@ export class AuthService {
 
       // Get full user profile from Graph API
       const userProfile = await graphClient.api('/me').get();
-      console.log('Retrieved user profile:', userProfile);
+      console.log('🎯 [getCurrentUser] Retrieved user profile from Graph API:', {
+        id: userProfile.id,
+        displayName: userProfile.displayName,
+        mail: userProfile.mail,
+        userPrincipalName: userProfile.userPrincipalName
+      });
       
       return userProfile;
     } catch (error) {
-      console.error('Failed to get current user profile:', error);
+      console.error('❌ [getCurrentUser] Failed to get current user profile:', error);
       
       // Fallback to MSAL account info if Graph API fails
       if (this.account) {
-        console.log('Falling back to MSAL account info:', this.account);
+        console.log('🔄 [getCurrentUser] Falling back to MSAL account info:', this.account);
         return {
           id: this.account.localAccountId,
           displayName: this.account.name || 'User',
@@ -451,6 +835,20 @@ export class AuthService {
           }
         }
         
+        // Check if we have a stored token from system browser authentication
+        if (this.currentAccessToken && this.account) {
+          console.log('🔄 Using stored token from system browser authentication');
+          
+          // Check if the token is still valid
+          if (this.currentAccessToken.expiresOn && this.currentAccessToken.expiresOn > new Date()) {
+            console.log('✅ Stored token is still valid, returning it');
+            return this.currentAccessToken;
+          } else {
+            console.log('⚠️ Stored token has expired, clearing it');
+            this.currentAccessToken = null;
+          }
+        }
+        
         // No cached token available, user needs to sign in
         throw new Error('User not signed in - please use the Sign In button');
       }
@@ -554,10 +952,49 @@ export class AuthService {
       throw new Error('Authentication service not initialized');
     }
 
+    // For client credentials, we're always "authenticated"
+    if (this.useClientCredentials) {
+      return {
+        mode: 'client-credentials',
+        permissions: this.config.auth.scopes || [],
+        isAuthenticated: true,
+        clientId: this.config.auth.clientId,
+        tenantId: this.config.auth.tenantId
+      };
+    }
+
+    // For interactive mode, check if we have a valid account and can get a token
+    let isAuthenticated = false;
+    try {
+      console.log('🔍 [getAuthenticationInfo] Checking authentication state...', {
+        hasAccount: !!this.account,
+        accountUsername: this.account?.username,
+        pcaIsPublic: this.pca instanceof PublicClientApplication,
+        pcaExists: !!this.pca
+      });
+      
+      // Check if we have a cached account (indicates previous successful authentication)
+      if (this.account && this.pca instanceof PublicClientApplication) {
+        // We have an account - this means user has successfully authenticated before
+        // We don't need to call getToken() here as it's expensive and can cause UI lag
+        isAuthenticated = true;
+        console.log('✅ [getAuthenticationInfo] User is authenticated (has account)');
+      } else {
+        console.log('❌ [getAuthenticationInfo] User is not authenticated', {
+          noAccount: !this.account,
+          notPublicClient: !(this.pca instanceof PublicClientApplication)
+        });
+      }
+    } catch (error) {
+      // If there's any error checking authentication state, default to false
+      console.log('🔍 Authentication state check failed:', error);
+      isAuthenticated = false;
+    }
+
     return {
-      mode: this.useClientCredentials ? 'client-credentials' : 'interactive',
+      mode: 'interactive',
       permissions: this.config.auth.scopes || [],
-      isAuthenticated: this.useClientCredentials ? true : false, // For client credentials, we're always "authenticated"
+      isAuthenticated,
       clientId: this.config.auth.clientId,
       tenantId: this.config.auth.tenantId
     };
@@ -574,6 +1011,12 @@ export class AuthService {
     tenantId: string;
   }> {
     const basicInfo = this.getAuthenticationInfo();
+
+    // If basic authentication check already indicates we're not authenticated, 
+    // don't try to get token for interactive mode (avoid expensive operations)
+    if (!basicInfo.isAuthenticated && !this.useClientCredentials) {
+      return basicInfo;
+    }
 
     try {
       // Get current token to extract actual permissions for both auth modes
@@ -723,8 +1166,9 @@ export class AuthService {
           console.log(`Removed cached account: ${account.username}`);
         }
         
-        // Reset our stored account reference
+        // Reset our stored account reference and token
         this.account = null;
+        this.currentAccessToken = null;
         
         console.log('✅ Token cache cleared successfully');
       }

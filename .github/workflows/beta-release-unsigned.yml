@@ -175,7 +175,18 @@ jobs:
           
           # Create new tag
           git tag ${{ github.event.inputs.version }}
-          git push origin ${{ github.event.inputs.version }}
+          
+          # Push tag explicitly using full ref specification to avoid ambiguity
+          git push origin refs/tags/${{ github.event.inputs.version }}
+          
+          # Verify tag was pushed successfully
+          echo "Verifying tag ${{ github.event.inputs.version }} was pushed..."
+          if git ls-remote --tags origin | grep -q "refs/tags/${{ github.event.inputs.version }}"; then
+            echo "✅ Tag ${{ github.event.inputs.version }} successfully pushed to remote"
+          else
+            echo "❌ Tag ${{ github.event.inputs.version }} not found on remote"
+            exit 1
+          fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
