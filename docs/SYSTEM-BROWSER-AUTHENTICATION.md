@@ -29,7 +29,7 @@ Enable this option if you encounter any of the following scenarios:
 
 - **Embedded Browser (Default)**: Uses Electron's BrowserWindow for authentication
 - **System Browser (Optional)**: Opens authentication in the user's default system browser
-- **Local Server**: Creates a temporary HTTP server on port 3000 to handle the OAuth redirect
+- **Local Server**: Creates a temporary HTTP server on an available port (3000-3010) to handle the OAuth redirect
 - **PKCE Security**: Uses Proof Key for Code Exchange for secure authentication flow
 
 ### Configuration Storage
@@ -49,26 +49,28 @@ interface EntraConfig {
 
 When system browser is enabled:
 
-1. A local HTTP server starts on port 3000
+1. A local HTTP server starts on an available port (3000-3010)
 2. The authentication URL opens in the system browser
 3. User completes authentication in their browser
-4. Browser redirects to `http://localhost:3000` with authorization code
+4. Browser redirects to `http://localhost:[port]` with authorization code
 5. Application exchanges the code for tokens
 6. Local server shuts down
 7. User returns to EntraPulse Lite with active session
 
 ## Troubleshooting
 
-### Port 3000 Already in Use
+### Ports 3000-3010 Already in Use
 
-If port 3000 is already in use, you may see an error. Either:
-- Stop the process using port 3000
+If all ports in the range 3000-3010 are already in use, you may see an error. Either:
+- Stop any processes using ports in that range
 - Temporarily disable the system browser option
 - Contact your system administrator
 
+The application automatically tries ports 3000, 3001, 3002, etc., up to 3010 to find an available port.
+
 ### Firewall Issues
 
-Ensure your firewall allows connections to `localhost:3000` for the authentication redirect to work properly.
+Ensure your firewall allows connections to `localhost` ports 3000-3010 for the authentication redirect to work properly.
 
 ### Browser Doesn't Open
 
@@ -95,7 +97,6 @@ If the system browser doesn't open automatically:
 
 ## Future Enhancements
 
-- Dynamic port selection if 3000 is unavailable
-- Custom redirect URI configuration
 - Enhanced error handling for browser launch failures
 - Support for other authentication flows if needed
+- Custom redirect URI configuration beyond localhost

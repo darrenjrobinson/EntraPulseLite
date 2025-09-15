@@ -7,6 +7,7 @@ import { AppConfig, AuthToken } from '../types';
 import { BrowserWindow, app, shell } from 'electron';
 import { createHash, randomBytes } from 'crypto';
 import * as http from 'http';
+import * as net from 'net';
 import * as path from 'path';
 
 export class AuthService {
@@ -305,7 +306,7 @@ export class AuthService {
       throw new Error('Public client not properly initialized for interactive flow');
     }
 
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
       let server: http.Server | null = null;
       let authCompleted = false;
 
@@ -313,9 +314,15 @@ export class AuthService {
       const codeVerifier = this.generateCodeVerifier();
       const codeChallenge = this.generateCodeChallenge(codeVerifier);
 
-      // Find available port and create HTTP server to handle redirect
-      const port = 3000; // Using fixed port for simplicity
+      // Find available port in range 3000-3010
+      const port = await this.findAvailablePort(3000, 3010);
+      if (!port) {
+        reject(new Error('No available ports in range 3000-3010 for authentication server'));
+        return;
+      }
+      
       const redirectUri = `http://localhost:${port}`;
+      console.log(`🌐 Using port ${port} for system browser authentication server`);
 
       server = http.createServer(async (req, res) => {
         try {
@@ -343,7 +350,7 @@ export class AuthService {
             `);
 
             // Handle the authorization response
-            await this.handleSystemBrowserRedirect(req.url, codeVerifier, resolve, reject);
+            await this.handleSystemBrowserRedirect(req.url, codeVerifier, redirectUri, resolve, reject);
             
             // Close the server
             if (server) {
@@ -407,6 +414,7 @@ export class AuthService {
   private async handleSystemBrowserRedirect(
     url: string,
     codeVerifier: string,
+    redirectUri: string,
     resolve: (value: AuthToken | null) => void,
     reject: (reason?: any) => void
   ): Promise<void> {
@@ -436,7 +444,7 @@ export class AuthService {
               client_id: this.config!.auth.clientId,
               scope: this.config!.auth.scopes.join(' '),
               code: code,
-              redirect_uri: 'http://localhost:3000',
+              redirect_uri: redirectUri,
               grant_type: 'authorization_code',
               code_verifier: codeVerifier,
             }),
@@ -1066,6 +1074,40 @@ export class AuthService {
    */
   private generateCodeChallenge(codeVerifier: string): string {
     return createHash('sha256').update(codeVerifier).digest('base64url');
+  }
+
+  /**
+   * Find an available port in the specified range
+   * @param startPort Starting port number
+   * @param endPort Ending port number
+   * @returns Available port number or null if none found
+   */
+  private async findAvailablePort(startPort: number, endPort: number): Promise<number | null> {
+    for (let port = startPort; port <= endPort; port++) {
+      const isAvailable = await new Promise<boolean>((resolve) => {
+        const server = net.createServer();
+        
+        server.listen(port, () => {
+          server.close(() => {
+            resolve(true);
+          });
+        });
+        
+        server.on('error', () => {
+          resolve(false);
+        });
+      });
+      
+      if (isAvailable) {
+        console.log(`✅ Found available port: ${port}`);
+        return port;
+      } else {
+        console.log(`❌ Port ${port} is in use, trying next...`);
+      }
+    }
+    
+    console.error(`❌ No available ports found in range ${startPort}-${endPort}`);
+    return null;
   }
 
   /**
