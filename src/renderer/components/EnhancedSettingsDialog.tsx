@@ -2380,8 +2380,14 @@ const EntraConfigForm: React.FC<EntraConfigFormProps> = ({ config, onSave, onCle
                   setLocalConfig(newConfig);
                   setIsUserEditing(true);
                   
-                  // Auto-save only if we have the minimum required configuration (ClientID and TenantID)
-                  if (newConfig.clientId.trim() && newConfig.tenantId.trim()) {
+                  // Auto-save only if we have the minimum required configuration
+                  // For Enhanced Graph Access, only tenantId is required
+                  // For Custom Application, both clientId and tenantId are required
+                  const isConfigReadyForSave = newConfig.useGraphPowerShell
+                    ? !!newConfig.tenantId?.trim()
+                    : !!(newConfig.clientId?.trim() && newConfig.tenantId?.trim());
+                  
+                  if (isConfigReadyForSave) {
                     try {
                       console.log('🔄 Auto-saving Entra config with system browser setting:', e.target.checked);
                       await onSave(newConfig);
@@ -2391,7 +2397,13 @@ const EntraConfigForm: React.FC<EntraConfigFormProps> = ({ config, onSave, onCle
                       console.error('❌ Failed to save system browser setting:', error);
                     }
                   } else {
-                    console.log('🔄 System browser setting changed but not auto-saving - missing required ClientID/TenantID');
+                    const missingFields = newConfig.useGraphPowerShell 
+                      ? (!newConfig.tenantId?.trim() ? 'TenantID' : '')
+                      : [
+                          !newConfig.clientId?.trim() ? 'ClientID' : '',
+                          !newConfig.tenantId?.trim() ? 'TenantID' : ''
+                        ].filter(Boolean).join(', ');
+                    console.log(`🔄 System browser setting changed but not auto-saving - missing required ${missingFields}`);
                     setIsUserEditing(false);
                   }
                 }}
