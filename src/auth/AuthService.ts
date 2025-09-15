@@ -7,6 +7,7 @@ import { AppConfig, AuthToken } from '../types';
 import { BrowserWindow, app, shell } from 'electron';
 import { createHash, randomBytes } from 'crypto';
 import * as http from 'http';
+import * as net from 'net';
 import * as path from 'path';
 
 export class AuthService {
@@ -349,7 +350,7 @@ export class AuthService {
             `);
 
             // Handle the authorization response
-            await this.handleSystemBrowserRedirect(req.url, codeVerifier, resolve, reject);
+            await this.handleSystemBrowserRedirect(req.url, codeVerifier, redirectUri, resolve, reject);
             
             // Close the server
             if (server) {
@@ -413,6 +414,7 @@ export class AuthService {
   private async handleSystemBrowserRedirect(
     url: string,
     codeVerifier: string,
+    redirectUri: string,
     resolve: (value: AuthToken | null) => void,
     reject: (reason?: any) => void
   ): Promise<void> {
@@ -442,7 +444,7 @@ export class AuthService {
               client_id: this.config!.auth.clientId,
               scope: this.config!.auth.scopes.join(' '),
               code: code,
-              redirect_uri: 'http://localhost:3000',
+              redirect_uri: redirectUri,
               grant_type: 'authorization_code',
               code_verifier: codeVerifier,
             }),
@@ -1081,8 +1083,6 @@ export class AuthService {
    * @returns Available port number or null if none found
    */
   private async findAvailablePort(startPort: number, endPort: number): Promise<number | null> {
-    const net = require('net');
-    
     for (let port = startPort; port <= endPort; port++) {
       const isAvailable = await new Promise<boolean>((resolve) => {
         const server = net.createServer();
