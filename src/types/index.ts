@@ -35,7 +35,9 @@ export interface ChatMessage {
     mcpResults?: {
       fetchResult?: any;
       lokkaResult?: any;
+      microsoftEnterpriseResult?: any;
     };
+    mcpServerUsed?: 'lokka' | 'microsoft-enterprise' | 'auto-routed'; // Track which MCP server handled the query
     traceData?: {
       steps: string[];
       timing: Record<string, number>;
@@ -101,7 +103,7 @@ export interface MCPConfig {
     enabled: boolean;
     authMode: 'client-credentials' | 'enhanced-graph-access' | 'delegated';
     clientId?: string; // Used for 'client-credentials' and 'delegated' modes
-    tenantId?: string; // Used for 'client-credentials' and 'delegated' modes  
+    tenantId?: string; // Used for 'client-credentials' and 'delegated' modes
     clientSecret?: string; // Only used for 'client-credentials' mode
     useGraphPowerShell?: boolean; // Controls 'enhanced-graph-access' mode
     accessToken?: string; // Runtime token for 'enhanced-graph-access' and 'delegated' modes
@@ -112,11 +114,17 @@ export interface MCPConfig {
   microsoftDocs?: {
     enabled: boolean;
   };
+  microsoftEnterprise?: {
+    enabled: boolean;
+    grantedScopes?: string[]; // MCP scopes that have been granted via admin consent
+    consentedAt?: string; // ISO timestamp of when admin consent was granted
+    baseUrl?: string; // Override for Microsoft MCP endpoint (defaults to https://mcp.svc.cloud.microsoft/enterprise)
+  };
 }
 
 export interface MCPServerConfig {
   name: string;
-  type: 'fetch' | 'external-lokka' | 'microsoft-docs';
+  type: 'fetch' | 'external-lokka' | 'microsoft-docs' | 'microsoft-enterprise';
   port: number;
   enabled: boolean;
   url?: string;

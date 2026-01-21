@@ -226,7 +226,7 @@ export class StdioMCPClient {
       },
       clientInfo: {
         name: 'EntraPulseLite',
-        version: '1.0.1'
+        version: '1.1.0'
       }
     });
 

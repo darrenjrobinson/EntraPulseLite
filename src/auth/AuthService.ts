@@ -9,6 +9,7 @@ import { createHash, randomBytes } from 'crypto';
 import * as http from 'http';
 import * as net from 'net';
 import * as path from 'path';
+import { getAllMCPScopes, getMCPScopesForFeatures, getPriorityMCPScopes, isMCPScope, MCP_PERMISSION_TIERS } from './MCPScopes';
 
 export class AuthService {
   private pca: PublicClientApplication | ConfidentialClientApplication | null = null;
@@ -1361,5 +1362,67 @@ export class AuthService {
         details: error
       };
     }
+  }
+
+  /**
+   * Request MCP scopes for Microsoft Enterprise MCP Server
+   * @param features Array of feature categories to request scopes for (e.g., ['AUDIT_LOGS', 'PIM'])
+   * @returns Authentication token with MCP scopes
+   */
+  async requestMCPScopes(features?: (keyof typeof MCP_PERMISSION_TIERS)[]): Promise<AuthToken | null> {
+    console.log('🔐 [AuthService] Requesting MCP scopes for features:', features);
+
+    // If no specific features requested, get priority scopes
+    const mcpScopes = features
+      ? getMCPScopesForFeatures(features)
+      : getPriorityMCPScopes();
+
+    console.log('📋 [AuthService] MCP scopes to request:', mcpScopes);
+
+    return this.requestAdditionalPermissions(mcpScopes);
+  }
+
+  /**
+   * Check if MCP scopes are already granted
+   * @param features Optional array of feature categories to check
+   * @returns true if all required MCP scopes are granted
+   */
+  hasMCPScopes(features?: (keyof typeof MCP_PERMISSION_TIERS)[]): boolean {
+    if (!this.config) {
+      return false;
+    }
+
+    const requiredScopes = features
+      ? getMCPScopesForFeatures(features)
+      : getPriorityMCPScopes();
+
+    return requiredScopes.every(scope =>
+      this.config!.auth.scopes.includes(scope)
+    );
+  }
+
+  /**
+   * Get currently granted MCP scopes
+   * @returns Array of granted MCP scopes
+   */
+  getGrantedMCPScopes(): string[] {
+    if (!this.config) {
+      return [];
+    }
+
+    return this.config.auth.scopes.filter(scope => isMCPScope(scope));
+  }
+
+  /**
+   * Get MCP token with appropriate scopes
+   * Automatically requests missing scopes if needed
+   */
+  async getMCPToken(features?: (keyof typeof MCP_PERMISSION_TIERS)[]): Promise<AuthToken | null> {
+    if (!this.hasMCPScopes(features)) {
+      console.log('⚠️  [AuthService] Missing MCP scopes, requesting them...');
+      return this.requestMCPScopes(features);
+    }
+
+    return this.getToken();
   }
 }

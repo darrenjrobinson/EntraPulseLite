@@ -4,8 +4,10 @@
 import { MCPServerConfig } from '../types';
 import { FetchMCPServer } from './fetch';
 import { ExternalLokkaMCPStdioServer } from './lokka/ExternalLokkaMCPStdioServer';
+import { MicrosoftEnterpriseMCPServer } from './MicrosoftEnterpriseMCPServer';
 import { MCPAuthService } from '../auth/MCPAuthService';
 import { ConfigService } from '../../shared/ConfigService';
+import { AuthService } from '../../auth/AuthService';
 
 export interface MCPServerHandlers {
   handleRequest: (request: any) => Promise<any>;
@@ -14,10 +16,16 @@ export interface MCPServerHandlers {
 }
 
 export class MCPServerFactory {
-  static createServer(config: MCPServerConfig, authService?: MCPAuthService, configService?: ConfigService): MCPServerHandlers {
+  static createServer(
+    config: MCPServerConfig,
+    authService?: MCPAuthService,
+    configService?: ConfigService,
+    mainAuthService?: AuthService
+  ): MCPServerHandlers {
     switch (config.type) {
       case 'fetch':
         return new FetchMCPServer(config);
+
       case 'external-lokka':
         if (!authService) {
           throw new Error('Auth service is required for external lokka MCP server');
@@ -26,6 +34,13 @@ export class MCPServerFactory {
           throw new Error('Config service is required for external lokka MCP server');
         }
         return new ExternalLokkaMCPStdioServer(config, authService, configService);
+
+      case 'microsoft-enterprise':
+        if (!mainAuthService) {
+          console.warn('[MCPServerFactory] Main auth service not provided for microsoft-enterprise, server will initialize without token');
+        }
+        return new MicrosoftEnterpriseMCPServer(config, mainAuthService);
+
       default:
         throw new Error(`Unsupported MCP server type: ${config.type}`);
     }

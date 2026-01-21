@@ -50,7 +50,7 @@ export class HttpStreamableMCPClient {
           },
           clientInfo: {
             name: 'EntraPulseLite',
-            version: '1.0.1'
+            version: '1.1.0'
           }
         }
       };
@@ -160,7 +160,7 @@ export class HttpStreamableMCPClient {
     try {      const headers: Record<string, string> = {
         'Content-Type': 'application/json',
         'Accept': 'application/json, text/event-stream',
-        'User-Agent': 'MCP-Client/1.0.1'
+        'User-Agent': 'MCP-Client/1.1.0'
       };
 
       // Add session ID if we have one
