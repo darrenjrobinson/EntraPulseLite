@@ -87,6 +87,17 @@ export const ChatComponent: React.FC<ChatComponentProps> = () => {
     lastChecked: null
   });
 
+  // MCP Server status tracking
+  const [mcpStatus, setMcpStatus] = useState<{
+    lokkaEnabled: boolean;
+    microsoftMcpEnabled: boolean;
+    mode: 'lokka-only' | 'microsoft-only' | 'auto-routing' | 'none';
+  }>({
+    lokkaEnabled: true,
+    microsoftMcpEnabled: false,
+    mode: 'lokka-only'
+  });
+
   useEffect(() => {
     initializeApp();
   }, []);
@@ -183,6 +194,32 @@ export const ChatComponent: React.FC<ChatComponentProps> = () => {
     }
   };
 
+  const loadMCPStatus = async () => {
+    try {
+      const electronAPI = window.electronAPI as any;
+      const mcpConfig = await electronAPI.config.getMCPConfig();
+      const lokkaEnabled = mcpConfig.lokka?.enabled ?? true;
+      const microsoftMcpEnabled = mcpConfig.microsoftEnterprise?.enabled ?? false;
+
+      let mode: 'lokka-only' | 'microsoft-only' | 'auto-routing' | 'none';
+      if (lokkaEnabled && microsoftMcpEnabled) {
+        mode = 'auto-routing';
+      } else if (lokkaEnabled) {
+        mode = 'lokka-only';
+      } else if (microsoftMcpEnabled) {
+        mode = 'microsoft-only';
+      } else {
+        mode = 'none';
+      }
+
+      setMcpStatus({ lokkaEnabled, microsoftMcpEnabled, mode });
+      console.log('🔄 MCP status loaded:', { lokkaEnabled, microsoftMcpEnabled, mode });
+    } catch (error) {
+      console.error('Failed to load MCP status:', error);
+      // Keep default status on error
+    }
+  };
+
   const initializeApp = async () => {
     try {
       console.log('🚀 Initializing EntraPulse Lite...');
@@ -200,6 +237,9 @@ export const ChatComponent: React.FC<ChatComponentProps> = () => {
 
       // Load default cloud provider
       await loadDefaultCloudProvider();
+
+      // Load MCP server status
+      await loadMCPStatus();
 
       // Get authentication information (including permissions)
       const authInfo = await window.electronAPI.auth.getAuthenticationInfo();
@@ -829,19 +869,19 @@ What would you like to explore?`,
           {/* Cloud LLM Provider and Model with Status */}
           {defaultCloudProvider && (
             <Tooltip title={
-              cloudLLMStatus.isRateLimited ? 
+              cloudLLMStatus.isRateLimited ?
                 `Rate limited - last checked: ${cloudLLMStatus.lastChecked?.toLocaleTimeString()}` :
               !cloudLLMStatus.isAvailable ?
                 `Error: ${cloudLLMStatus.lastError}` :
                 `Available - last checked: ${cloudLLMStatus.lastChecked?.toLocaleTimeString()}`
             }>
-              <Chip 
-                label={currentModel 
-                  ? `${getProviderDisplayName(defaultCloudProvider)}: ${currentModel}` 
+              <Chip
+                label={currentModel
+                  ? `${getProviderDisplayName(defaultCloudProvider)}: ${currentModel}`
                   : `Default: ${getProviderDisplayName(defaultCloudProvider)}`}
                 color={
                   cloudLLMStatus.isRateLimited ? "warning" :
-                  !cloudLLMStatus.isAvailable ? "error" : 
+                  !cloudLLMStatus.isAvailable ? "error" :
                   "primary"
                 }
                 size="small"
@@ -854,6 +894,29 @@ What would you like to explore?`,
               />
             </Tooltip>
           )}
+
+          {/* MCP Server Status */}
+          <Tooltip title={
+            mcpStatus.mode === 'auto-routing' ?
+              'Auto-routing: Lokka (local) + Microsoft MCP (enterprise)' :
+            mcpStatus.mode === 'lokka-only' ?
+              'Using Lokka MCP (local, privacy-first)' :
+            mcpStatus.mode === 'microsoft-only' ?
+              'Using Microsoft Enterprise MCP (cloud, enterprise features)' :
+              'No MCP servers enabled'
+          }>
+            <Chip
+              label={
+                mcpStatus.mode === 'auto-routing' ? '🔒☁️ Auto-routing' :
+                mcpStatus.mode === 'lokka-only' ? '🔒 Lokka' :
+                mcpStatus.mode === 'microsoft-only' ? '☁️ Microsoft MCP' :
+                'No MCP'
+              }
+              color={mcpStatus.mode === 'none' ? 'error' : 'info'}
+              size="small"
+              variant="outlined"
+            />
+          </Tooltip>
         </Box>        <Box display="flex" alignItems="center" gap={1}>
           <Tooltip title="Start New Chat">
             <Button
