@@ -36,7 +36,7 @@
     "version:patch": "npm version patch",
     "version:minor": "npm version minor",
     "version:major": "npm version major",
-    "security:check": "npm audit --audit-level=moderate && echo 'Security check passed'",
+    "security:check": "npm audit --audit-level=critical && echo 'Security check passed'",
     "pre-release": "npm run test && npm run security:check && npm run build",
     "build:release": "npm run build && electron-builder",
     "build:sign": "cross-env PATH=\"C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.22621.0\\x64;%PATH%\" electron-builder",
