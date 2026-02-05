@@ -234,7 +234,10 @@ export interface EnhancedLLMResponse {
   mcpResults: {
     fetchResult?: any;
     lokkaResult?: any;
+    microsoftDocsResult?: any;
+    microsoftEnterpriseResult?: any;
   };
+  mcpServerUsed?: 'lokka' | 'microsoft-enterprise';
   finalResponse: string;
   traceData: {
     steps: string[];

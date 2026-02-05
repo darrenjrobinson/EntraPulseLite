@@ -1,17 +1,20 @@
 /**
  * MicrosoftEnterpriseMCPClient
- * Low-level HTTP client for Microsoft Enterprise MCP Server
+ * MCP client for Microsoft Enterprise MCP Server using HTTP Streamable transport
  *
- * Features:
- * - Rate limiting (100 requests/minute)
- * - Token authentication
- * - Request/response caching
- * - Error handling with exponential backoff
+ * This client communicates with the Microsoft MCP Server for Enterprise
+ * using the proper Model Context Protocol (MCP) over HTTP Streamable transport.
+ *
+ * The server exposes these tools:
+ * - microsoft_graph_suggest_queries: RAG-based semantic search for Graph API examples
+ * - microsoft_graph_get: Execute read-only Microsoft Graph API calls
+ * - microsoft_graph_list_properties: Get schema for Graph entities
  *
  * Reference: https://learn.microsoft.com/en-us/graph/mcp-server/overview
  */
 
-import axios, { AxiosInstance, AxiosError } from 'axios';
+import { MCPServerConfig } from '../types';
+import { MCPAuthService } from '../auth/MCPAuthService';
 
 export interface MCPClientConfig {
   baseUrl?: string; // Defaults to Microsoft's endpoint
@@ -20,9 +23,22 @@ export interface MCPClientConfig {
   enableCache?: boolean; // Enable response caching (default true)
 }
 
-export interface MCPRequestOptions {
-  skipCache?: boolean; // Skip cache for this request
-  priority?: 'high' | 'normal' | 'low'; // Request priority for rate limiting
+export interface JsonRpcRequest {
+  jsonrpc: string;
+  id: string | number;
+  method: string;
+  params?: any;
+}
+
+export interface JsonRpcResponse {
+  jsonrpc: string;
+  id: string | number;
+  result?: any;
+  error?: {
+    code: number;
+    message: string;
+    data?: any;
+  };
 }
 
 export interface MCPResponse<T = any> {
@@ -45,85 +61,65 @@ interface CacheEntry {
   ttl: number;
 }
 
-interface RequestQueueItem {
-  execute: () => Promise<any>;
-  resolve: (value: any) => void;
-  reject: (error: any) => void;
-  priority: 'high' | 'normal' | 'low';
-  timestamp: number;
-}
-
 export class MicrosoftEnterpriseMCPClient {
   private readonly baseUrl: string;
   private readonly timeout: number;
   private readonly maxRetries: number;
   private readonly enableCache: boolean;
-  private axiosInstance: AxiosInstance;
   private accessToken: string | null = null;
+  private sessionId: string | null = null;
+  private requestId = 1;
 
-  // Rate limiting
+  // Rate limiting (Microsoft limits to 100 requests/minute per user)
   private requestTimestamps: number[] = [];
   private readonly maxRequestsPerMinute = 100;
   private readonly warningThreshold = 80; // 80% of max
-  private requestQueue: RequestQueueItem[] = [];
-  private isProcessingQueue = false;
 
   // Caching
   private cache: Map<string, CacheEntry> = new Map();
   private readonly defaultCacheTTL = 5 * 60 * 1000; // 5 minutes
 
-  constructor(config: MCPClientConfig = {}) {
+  // Server configuration for auth service compatibility
+  private serverConfig: MCPServerConfig;
+  private authService?: MCPAuthService;
+
+  // Initialization tracking
+  private initialized = false;
+  private initializationPromise: Promise<void> | null = null;
+
+  constructor(config: MCPClientConfig = {}, authService?: MCPAuthService) {
     this.baseUrl = config.baseUrl || 'https://mcp.svc.cloud.microsoft/enterprise';
     this.timeout = config.timeout || 30000;
     this.maxRetries = config.maxRetries || 3;
     this.enableCache = config.enableCache !== false;
+    this.authService = authService;
 
-    this.axiosInstance = axios.create({
-      baseURL: this.baseUrl,
-      timeout: this.timeout,
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'EntraPulseLite/1.1.0'
-      }
-    });
+    // Create a server config for auth service compatibility
+    this.serverConfig = {
+      name: 'microsoft-enterprise',
+      type: 'microsoft-enterprise',
+      url: this.baseUrl,
+      port: 0, // Not used for HTTP-based MCP servers
+      enabled: true
+    };
 
-    // Setup request interceptor for authentication
-    this.axiosInstance.interceptors.request.use(
-      (config) => {
-        if (this.accessToken) {
-          config.headers.Authorization = `Bearer ${this.accessToken}`;
-        }
-        return config;
-      },
-      (error) => Promise.reject(error)
-    );
-
-    // Setup response interceptor for logging
-    this.axiosInstance.interceptors.response.use(
-      (response) => {
-        console.log('[MicrosoftEnterpriseMCPClient] Response received:', {
-          status: response.status,
-          url: response.config.url
-        });
-        return response;
-      },
-      (error) => {
-        console.error('[MicrosoftEnterpriseMCPClient] Request failed:', {
-          status: error.response?.status,
-          message: error.message,
-          url: error.config?.url
-        });
-        return Promise.reject(error);
-      }
-    );
+    console.log('[MicrosoftEnterpriseMCPClient] Created with URL:', this.baseUrl);
   }
 
   /**
-   * Set access token for authentication
+   * Set auth service for token management
+   */
+  setAuthService(authService: MCPAuthService): void {
+    this.authService = authService;
+    console.log('[MicrosoftEnterpriseMCPClient] Auth service updated');
+  }
+
+  /**
+   * Set access token for authentication (direct token setting)
    */
   setAccessToken(token: string): void {
     this.accessToken = token;
-    console.log('[MicrosoftEnterpriseMCPClient] Access token updated');
+    console.log('[MicrosoftEnterpriseMCPClient] Access token updated, length:', token.length);
   }
 
   /**
@@ -192,8 +188,8 @@ export class MicrosoftEnterpriseMCPClient {
   /**
    * Generate cache key for request
    */
-  private getCacheKey(url: string, params?: any): string {
-    return `${url}:${JSON.stringify(params || {})}`;
+  private getCacheKey(method: string, params?: any): string {
+    return `${method}:${JSON.stringify(params || {})}`;
   }
 
   /**
@@ -211,7 +207,6 @@ export class MicrosoftEnterpriseMCPClient {
 
     const now = Date.now();
     if (now - entry.timestamp > entry.ttl) {
-      // Cache expired
       this.cache.delete(cacheKey);
       return null;
     }
@@ -234,7 +229,7 @@ export class MicrosoftEnterpriseMCPClient {
       ttl
     });
 
-    console.log('[MicrosoftEnterpriseMCPClient] Cached response:', cacheKey, 'TTL:', ttl);
+    console.log('[MicrosoftEnterpriseMCPClient] Cached response:', cacheKey);
   }
 
   /**
@@ -246,122 +241,361 @@ export class MicrosoftEnterpriseMCPClient {
   }
 
   /**
-   * Execute request with rate limiting, caching, and retries
+   * Get next request ID
    */
-  private async executeRequest<T>(
-    method: 'GET' | 'POST',
-    url: string,
-    data?: any,
-    options: MCPRequestOptions = {}
-  ): Promise<MCPResponse<T>> {
-    const cacheKey = this.getCacheKey(url, data);
+  private getNextId(): number {
+    return this.requestId++;
+  }
 
-    // Check cache first (unless skipCache is true)
-    if (!options.skipCache && method === 'GET') {
-      const cachedData = this.getFromCache(cacheKey);
-      if (cachedData !== null) {
-        return {
-          data: cachedData,
-          cached: true,
-          timestamp: Date.now()
-        };
+  /**
+   * Send JSON-RPC request to the MCP server
+   */
+  private async sendRequest(request: JsonRpcRequest): Promise<JsonRpcResponse> {
+    try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json, text/event-stream',
+        'User-Agent': 'EntraPulseLite/1.1.0'
+      };
+
+      // Add session ID if we have one
+      if (this.sessionId) {
+        headers['Mcp-Session-Id'] = this.sessionId;
       }
+
+      // Add authentication - prefer direct token, fallback to auth service
+      if (this.accessToken) {
+        headers['Authorization'] = `Bearer ${this.accessToken}`;
+        console.log('[MicrosoftEnterpriseMCPClient] Using direct access token');
+      } else if (this.authService) {
+        try {
+          const authHeaders = await this.authService.getAuthHeaders('microsoft-enterprise');
+          Object.assign(headers, authHeaders);
+          console.log('[MicrosoftEnterpriseMCPClient] Got auth headers from service');
+        } catch (authError) {
+          console.error('[MicrosoftEnterpriseMCPClient] Failed to get auth headers:', authError);
+          throw new Error(`Authentication required for Microsoft Enterprise MCP: ${(authError as Error).message}`);
+        }
+      } else {
+        throw new Error('No authentication available for Microsoft Enterprise MCP');
+      }
+
+      console.log('🌐 [MicrosoftEnterpriseMCPClient] Sending MCP request:', {
+        url: this.baseUrl,
+        method: request.method,
+        id: request.id,
+        hasSessionId: !!this.sessionId,
+        paramsPreview: JSON.stringify(request.params || {}).substring(0, 200)
+      });
+
+      // Wait for rate limit if needed
+      await this.waitForRateLimit();
+      this.trackRequest();
+
+      const response = await fetch(this.baseUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(request)
+      });
+
+      // Log response details for debugging (including all headers)
+      const allHeaders: Record<string, string> = {};
+      response.headers.forEach((value, key) => {
+        allHeaders[key] = value;
+      });
+      console.log('📡 [MicrosoftEnterpriseMCPClient] Received response:', {
+        status: response.status,
+        statusText: response.statusText,
+        contentType: response.headers.get('Content-Type'),
+        hasSessionId: !!response.headers.get('Mcp-Session-Id'),
+        allHeaders
+      });
+
+      // Check for session ID in response headers
+      const responseSessionId = response.headers.get('Mcp-Session-Id');
+      if (responseSessionId && !this.sessionId) {
+        this.sessionId = responseSessionId;
+        console.log('[MicrosoftEnterpriseMCPClient] Received session ID:', responseSessionId);
+      }
+
+      if (!response.ok) {
+        // For debugging errors, try to get response body
+        let errorDetails = `HTTP ${response.status}: ${response.statusText}`;
+        try {
+          const errorBody = await response.text();
+          if (errorBody) {
+            errorDetails += ` - Response: ${errorBody}`;
+            console.log('❌ [MicrosoftEnterpriseMCPClient] Error response body:', errorBody);
+          }
+        } catch {
+          console.log('❌ [MicrosoftEnterpriseMCPClient] Could not read error response body');
+        }
+        throw new Error(errorDetails);
+      }
+
+      const contentType = response.headers.get('Content-Type') || '';
+
+      // Handle SSE stream response
+      if (contentType.includes('text/event-stream')) {
+        console.log('[MicrosoftEnterpriseMCPClient] Received SSE stream response, parsing...');
+        return await this.parseSSEResponse(response);
+      }
+
+      // Handle JSON response
+      const data = await response.json();
+      console.log('📨 [MicrosoftEnterpriseMCPClient] Received JSON response:', {
+        hasResult: !!data.result,
+        hasError: !!data.error,
+        id: data.id
+      });
+
+      return data as JsonRpcResponse;
+    } catch (error) {
+      console.error('❌ [MicrosoftEnterpriseMCPClient] MCP request failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Parse Server-Sent Events response
+   */
+  private async parseSSEResponse(response: Response): Promise<JsonRpcResponse> {
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new Error('No response body for SSE stream');
     }
 
-    // Wait for rate limit if needed
-    await this.waitForRateLimit();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let lastResponse: JsonRpcResponse | null = null;
 
-    // Track this request
-    this.trackRequest();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-    // Execute request with retries
-    let lastError: any;
-    for (let attempt = 0; attempt < this.maxRetries; attempt++) {
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            if (data === '[DONE]') {
+              return lastResponse || { jsonrpc: '2.0', id: 0, error: { code: -1, message: 'No response received' } };
+            }
+
+            try {
+              const jsonData = JSON.parse(data);
+              // Log all SSE data for debugging server responses
+              console.log('📦 [MicrosoftEnterpriseMCPClient] SSE data received:', JSON.stringify(jsonData, null, 2));
+              if (jsonData.jsonrpc) {
+                lastResponse = jsonData;
+                // Log error details if present in the result
+                if (jsonData.result?.isError) {
+                  console.log('⚠️ [MicrosoftEnterpriseMCPClient] Server returned error in result:', JSON.stringify(jsonData.result, null, 2));
+                }
+                if (jsonData.error) {
+                  console.log('❌ [MicrosoftEnterpriseMCPClient] Server returned JSON-RPC error:', JSON.stringify(jsonData.error, null, 2));
+                }
+              }
+            } catch {
+              console.warn('[MicrosoftEnterpriseMCPClient] Failed to parse SSE data:', data);
+            }
+          }
+        }
+      }
+
+      return lastResponse || { jsonrpc: '2.0', id: 0, error: { code: -1, message: 'No valid response received' } };
+    } finally {
+      reader.releaseLock();
+    }
+  }
+
+  /**
+   * Initialize the MCP client and perform handshake with the server
+   */
+  async initialize(): Promise<void> {
+    // If already initialized, return immediately
+    if (this.initialized) {
+      console.log('[MicrosoftEnterpriseMCPClient] Already initialized, skipping');
+      return;
+    }
+
+    // If initialization is in progress, wait for it
+    if (this.initializationPromise) {
+      console.log('[MicrosoftEnterpriseMCPClient] Initialization in progress, waiting...');
+      return this.initializationPromise;
+    }
+
+    this.initializationPromise = (async () => {
       try {
-        const response = await this.axiosInstance.request<T>({
-          method,
-          url,
-          data: method === 'POST' ? data : undefined,
-          params: method === 'GET' ? data : undefined
-        });
-
-        // Cache successful GET responses
-        if (method === 'GET' && this.enableCache) {
-          const ttl = this.defaultCacheTTL;
-          this.storeInCache(cacheKey, response.data, ttl);
-        }
-
-        return {
-          data: response.data,
-          cached: false,
-          requestId: response.headers['x-request-id'],
-          timestamp: Date.now()
+        const initRequest: JsonRpcRequest = {
+          jsonrpc: '2.0',
+          id: this.getNextId(),
+          method: 'initialize',
+          params: {
+            protocolVersion: '2024-11-05',
+            capabilities: {
+              tools: {},
+              resources: {},
+              sampling: {}
+            },
+            clientInfo: {
+              name: 'EntraPulseLite',
+              version: '1.1.0'
+            }
+          }
         };
-      } catch (error) {
-        lastError = error;
 
-        if (axios.isAxiosError(error)) {
-          const axiosError = error as AxiosError;
+        console.log('🔌 [MicrosoftEnterpriseMCPClient] Initializing MCP client for:', this.baseUrl);
+        const response = await this.sendRequest(initRequest);
 
-          // Handle specific status codes
-          if (axiosError.response?.status === 401) {
-            // Token expired - don't retry
-            throw new Error('Authentication failed: Token expired or invalid');
-          }
-
-          if (axiosError.response?.status === 403) {
-            // Missing consent - don't retry
-            throw new Error('Authorization failed: Missing required MCP scopes. Please grant admin consent.');
-          }
-
-          if (axiosError.response?.status === 429) {
-            // Rate limit hit - wait and retry
-            const retryAfter = axiosError.response.headers['retry-after'];
-            const waitTime = retryAfter ? parseInt(retryAfter) * 1000 : Math.pow(2, attempt) * 1000;
-
-            console.log(`[MicrosoftEnterpriseMCPClient] Rate limit (429), waiting ${waitTime}ms before retry ${attempt + 1}/${this.maxRetries}`);
-            await new Promise(resolve => setTimeout(resolve, waitTime));
-            continue;
-          }
-
-          if (axiosError.response?.status && axiosError.response.status >= 500) {
-            // Server error - retry with exponential backoff
-            const waitTime = Math.pow(2, attempt) * 1000;
-            console.log(`[MicrosoftEnterpriseMCPClient] Server error (${axiosError.response.status}), waiting ${waitTime}ms before retry ${attempt + 1}/${this.maxRetries}`);
-            await new Promise(resolve => setTimeout(resolve, waitTime));
-            continue;
-          }
+        if (response.error) {
+          throw new Error(`Initialization failed: ${response.error.message}`);
         }
 
-        // For other errors, don't retry
+        this.initialized = true;
+        console.log('✅ [MicrosoftEnterpriseMCPClient] MCP client initialized successfully');
+        console.log('📋 Server capabilities:', response.result?.capabilities || 'unknown');
+        
+        // List available tools after initialization to understand what's available
+        try {
+          const tools = await this.listTools();
+          console.log('🔧 [MicrosoftEnterpriseMCPClient] Available tools:', JSON.stringify(tools, null, 2));
+        } catch (toolsError) {
+          console.warn('⚠️ [MicrosoftEnterpriseMCPClient] Failed to list tools:', toolsError);
+        }
+      } catch (error) {
+        this.initializationPromise = null; // Allow retry
+        console.error('❌ [MicrosoftEnterpriseMCPClient] Failed to initialize:', error);
         throw error;
       }
+    })();
+
+    return this.initializationPromise;
+  }
+
+  /**
+   * Ensure client is initialized before making calls
+   */
+  private async ensureInitialized(): Promise<void> {
+    if (!this.initialized) {
+      await this.initialize();
+    }
+  }
+
+  /**
+   * List available tools from the MCP server
+   */
+  async listTools(): Promise<any[]> {
+    const cacheKey = this.getCacheKey('tools/list');
+    const cached = this.getFromCache(cacheKey);
+    if (cached) {
+      console.log('[MicrosoftEnterpriseMCPClient] Returning cached tools list');
+      return cached;
     }
 
-    // All retries failed
-    throw lastError;
+    const request: JsonRpcRequest = {
+      jsonrpc: '2.0',
+      id: this.getNextId(),
+      method: 'tools/list',
+      params: {}
+    };
+
+    console.log('📋 [MicrosoftEnterpriseMCPClient] Requesting tools list...');
+    const response = await this.sendRequest(request);
+    
+    if (response.error) {
+      console.error('❌ [MicrosoftEnterpriseMCPClient] Failed to list tools:', response.error);
+      throw new Error(`Failed to list tools: ${response.error.message}`);
+    }
+
+    const tools = response.result?.tools || [];
+    console.log(`📋 [MicrosoftEnterpriseMCPClient] Retrieved ${tools.length} tools`);
+    this.storeInCache(cacheKey, tools, this.defaultCacheTTL);
+    return tools;
   }
 
   /**
-   * Execute GET request
+   * Call a tool on the MCP server
+   * 
+   * Available tools from Microsoft Enterprise MCP Server:
+   * - microsoft_graph_suggest_queries: Semantic search for Graph API examples
+   * - microsoft_graph_get: Execute read-only Graph API calls
+   * - microsoft_graph_list_properties: Get schema for Graph entities
    */
-  async get<T>(url: string, params?: any, options?: MCPRequestOptions): Promise<MCPResponse<T>> {
-    return this.executeRequest<T>('GET', url, params, options);
+  async callTool(toolName: string, arguments_: any): Promise<any> {
+    // Ensure client is initialized before making tool calls
+    await this.ensureInitialized();
+
+    const request: JsonRpcRequest = {
+      jsonrpc: '2.0',
+      id: this.getNextId(),
+      method: 'tools/call',
+      params: {
+        name: toolName,
+        arguments: arguments_
+      }
+    };
+
+    console.log(`🔧 [MicrosoftEnterpriseMCPClient] Calling tool "${toolName}" with args:`, arguments_);
+    const response = await this.sendRequest(request);
+
+    if (response.error) {
+      throw new Error(`Tool call failed: ${response.error.message}`);
+    }
+
+    console.log(`✅ [MicrosoftEnterpriseMCPClient] Tool "${toolName}" completed successfully`);
+    return response.result;
   }
 
   /**
-   * Execute POST request
+   * Suggest Microsoft Graph queries based on natural language intent
+   * Uses RAG to search a curated catalog of Graph API examples
+   * @param intentDescription - Generic, anonymized intent in English (e.g., 'find tenant information', 'get user by email')
    */
-  async post<T>(url: string, data?: any, options?: MCPRequestOptions): Promise<MCPResponse<T>> {
-    return this.executeRequest<T>('POST', url, data, options);
+  async suggestQueries(intentDescription: string): Promise<any> {
+    return this.callTool('microsoft_graph_suggest_queries', { intentDescription });
   }
 
   /**
-   * Health check
+   * Execute a read-only Microsoft Graph API call
+   * The MCP server enforces user privileges and granted scopes
+   * @param relativeUrl - The EXACT relative Microsoft Graph API path (e.g., '/beta/auditLogs/signIns?$top=5')
+   */
+  async graphGet(relativeUrl: string): Promise<any> {
+    return this.callTool('microsoft_graph_get', { relativeUrl });
+  }
+
+  /**
+   * List properties/schema for a Microsoft Graph entity
+   * @param entityName - The name of the Microsoft Graph entity (e.g., 'user', 'group', 'directoryObject')
+   */
+  async listProperties(entityName: string): Promise<any> {
+    return this.callTool('microsoft_graph_list_properties', { entityName });
+  }
+
+  /**
+   * Execute GET request (legacy compatibility - redirects to graphGet)
+   * @deprecated Use graphGet or callTool instead
+   */
+  async get<T>(url: string): Promise<MCPResponse<T>> {
+    console.log('[MicrosoftEnterpriseMCPClient] Legacy get() called, using graphGet instead');
+    const result = await this.graphGet(url);
+    return {
+      data: result,
+      cached: false,
+      timestamp: Date.now()
+    };
+  }
+
+  /**
+   * Health check - try to list tools
    */
   async healthCheck(): Promise<boolean> {
     try {
-      await this.get('/health', undefined, { skipCache: true });
+      await this.listTools();
       return true;
     } catch (error) {
       console.error('[MicrosoftEnterpriseMCPClient] Health check failed:', error);

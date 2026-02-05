@@ -607,12 +607,30 @@ export const EnhancedSettingsDialog: React.FC<EnhancedSettingsDialogProps> = ({
     try {
       console.log('🔄 Saving MCP config:', newConfig);
       const electronAPI = window.electronAPI as any;
-      await electronAPI.config.saveMCPConfig(newConfig);
+      
+      // Optimistically update UI immediately for responsiveness
       setMcpConfig(newConfig);
+      
+      // Save to backend (which also reinitializes services)
+      await electronAPI.config.saveMCPConfig(newConfig);
       console.log('✅ MCP config saved successfully');
+      
+      // Reload config from backend to ensure UI reflects actual state
+      // This is important because reinitializeServices() may modify config
+      const savedConfig = await electronAPI.config.getMCPConfig();
+      console.log('🔄 Reloaded MCP config from backend:', savedConfig);
+      setMcpConfig(savedConfig);
     } catch (error) {
       console.error('❌ Failed to save MCP config:', error);
       alert('Failed to save MCP configuration. Please try again.');
+      // Reload original config on error to restore UI state
+      try {
+        const electronAPI = window.electronAPI as any;
+        const originalConfig = await electronAPI.config.getMCPConfig();
+        setMcpConfig(originalConfig);
+      } catch (reloadError) {
+        console.error('❌ Failed to reload MCP config:', reloadError);
+      }
     }
   };
 
@@ -1309,54 +1327,10 @@ export const EnhancedSettingsDialog: React.FC<EnhancedSettingsDialogProps> = ({
                 })}
               </Grid>
             </AccordionDetails>
-          </Accordion>          {/* Advanced Settings */}
-          <Accordion>
-            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-              <Typography variant="h6">Advanced Settings</Typography>
-            </AccordionSummary>
-            <AccordionDetails>
-              <Grid container spacing={2}>
-                <Grid item xs={6}>
-                  <TextField
-                    fullWidth
-                    label="Temperature"
-                    type="number"
-                    value={config.temperature || 0.2}
-                    onChange={(e) => setConfig({ ...config, temperature: parseFloat(e.target.value) })}
-                    inputProps={{ min: 0, max: 2, step: 0.1 }}
-                    helperText="Controls randomness (0.0 to 2.0)"
-                  />
-                </Grid>
-                <Grid item xs={6}>
-                  <TextField
-                    fullWidth
-                    label="Max Tokens"
-                    type="number"                    value={config.maxTokens || 4096}
-                    onChange={(e) => setConfig({ ...config, maxTokens: parseInt(e.target.value) })}
-                    inputProps={{ min: 1, max: 8192 }}
-                    helperText="Maximum response length"
-                  />                </Grid>                <Grid item xs={12}>
-                  <FormControlLabel
-                    control={
-                      <Switch
-                        checked={config.preferLocal || false}
-                        onChange={(e) => setConfig({ ...config, preferLocal: e.target.checked })}
-                      />
-                    }
-                    label="Prefer Local LLM when available"
-                  />
-                  <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1, ml: 4 }}>
-                    Use local models when both local and cloud are configured.
-                    {config.provider === 'ollama' || config.provider === 'lmstudio' ? 
-                      ' (Also available in Local LLM Configuration above)' : ''}
-                  </Typography>
-                </Grid>
-              </Grid>
-            </AccordionDetails>
           </Accordion>
 
           {/* MCP Server Configuration */}
-          <Accordion>
+          <Accordion defaultExpanded>
             <AccordionSummary expandIcon={<ExpandMoreIcon />}>
               <Typography variant="h6">MCP Server Configuration</Typography>
             </AccordionSummary>
@@ -1430,7 +1404,7 @@ export const EnhancedSettingsDialog: React.FC<EnhancedSettingsDialogProps> = ({
                       <Box sx={{ ml: 4, mt: 2 }}>
                         <Alert severity="info" sx={{ mb: 2 }}>
                           <Typography variant="body2">
-                            <strong>Admin Consent Required:</strong> Microsoft Enterprise MCP requires MCP-specific permissions.
+                            <strong>Admin Consent Required:</strong> Microsoft Enterprise MCP requires MCP-specific permissions. See Readme for prerequisites and step-by-step process.
                             Run the PowerShell command to grant consent:
                           </Typography>
                           <Box sx={{ mt: 1, p: 1, bgcolor: 'background.default', borderRadius: 1, fontFamily: 'monospace', fontSize: '0.85rem' }}>
@@ -1482,6 +1456,55 @@ export const EnhancedSettingsDialog: React.FC<EnhancedSettingsDialogProps> = ({
                     </Alert>
                   </Grid>
                 )}
+              </Grid>
+            </AccordionDetails>
+          </Accordion>
+
+          {/* Advanced Settings */}
+          <Accordion>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+              <Typography variant="h6">Advanced Settings</Typography>
+            </AccordionSummary>
+            <AccordionDetails>
+              <Grid container spacing={2}>
+                <Grid item xs={6}>
+                  <TextField
+                    fullWidth
+                    label="Temperature"
+                    type="number"
+                    value={config.temperature || 0.2}
+                    onChange={(e) => setConfig({ ...config, temperature: parseFloat(e.target.value) })}
+                    inputProps={{ min: 0, max: 2, step: 0.1 }}
+                    helperText="Controls randomness (0.0 to 2.0)"
+                  />
+                </Grid>
+                <Grid item xs={6}>
+                  <TextField
+                    fullWidth
+                    label="Max Tokens"
+                    type="number"
+                    value={config.maxTokens || 4096}
+                    onChange={(e) => setConfig({ ...config, maxTokens: parseInt(e.target.value) })}
+                    inputProps={{ min: 1, max: 8192 }}
+                    helperText="Maximum response length"
+                  />
+                </Grid>
+                <Grid item xs={12}>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={config.preferLocal || false}
+                        onChange={(e) => setConfig({ ...config, preferLocal: e.target.checked })}
+                      />
+                    }
+                    label="Prefer Local LLM when available"
+                  />
+                  <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1, ml: 4 }}>
+                    Use local models when both local and cloud are configured.
+                    {config.provider === 'ollama' || config.provider === 'lmstudio' ? 
+                      ' (Also available in Local LLM Configuration above)' : ''}
+                  </Typography>
+                </Grid>
               </Grid>
             </AccordionDetails>
           </Accordion>

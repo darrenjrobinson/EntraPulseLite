@@ -78,6 +78,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getEntraConfig: () => ipcRenderer.invoke('config:getEntraConfig'),
     saveEntraConfig: (config) => ipcRenderer.invoke('config:saveEntraConfig', config),
     clearEntraConfig: () => ipcRenderer.invoke('config:clearEntraConfig'),
+    getMCPConfig: () => ipcRenderer.invoke('config:getMCPConfig'),
+    saveMCPConfig: (config) => ipcRenderer.invoke('config:saveMCPConfig', config),
   },
 
   // App methods

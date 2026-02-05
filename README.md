@@ -15,10 +15,12 @@ A free community desktop application that provides natural language querying of 
 - **Multi-Provider LLM Integration**: Works with local (Ollama, LM Studio) and cloud (OpenAI, Anthropic, Google Gemini, Azure OpenAI) AI models
 - **Real-time LLM Status Monitoring**: Dynamic tracking of LLM availability with automatic UI updates
 - **Automatic Updates**: Seamless updates delivered through GitHub Releases with code signing and user control
-- **Built-in MCP Servers**: 
-  - Lokka MCP using the official @merill/lokka package for Microsoft Graph API access
+- **Built-in MCP Servers** (Recommended: Enable Both for Best Coverage): 
+  - **Lokka MCP** using the official @merill/lokka package - Fast, privacy-first Microsoft Graph API access for common queries
+  - **Microsoft Enterprise MCP** (Cloud) - Enterprise features: Audit Logs, PIM, Conditional Access, Device Compliance
   - Microsoft Docs MCP using the official MicrosoftDocs/MCP package for Microsoft Learn documentation and official Microsoft documentation
   - Fetch MCP for general web searches and documentation retrieval
+- **Intelligent Query Routing**: Auto-routing between Lokka (simple queries) and Microsoft Enterprise MCP (enterprise queries) based on query complexity
 - **Chat Interface**: Modern UI with trace visualization, permission management, code copy functionality, and conversation context management
 - **Enhanced User Experience**: Copy code blocks with one click, start new conversations to clear context
 - **Free Community Tool**: Enhanced Graph Access mode requires no App Registration setup
@@ -198,6 +200,109 @@ You can toggle between browser modes in Settings → Entra Application Settings 
 **Local Providers** (Privacy-focused):
 - Ollama
 - LM Studio
+
+### MCP Server Configuration (Recommended Setup)
+
+> **💡 Best Practice: Enable Both Lokka MCP AND Microsoft Enterprise MCP**
+>
+> For the best experience, we strongly recommend enabling **both** MCP servers. They complement each other:
+> - **Lokka MCP** handles simple, everyday queries quickly and privately
+> - **Microsoft Enterprise MCP** provides access to advanced enterprise features
+
+#### Lokka MCP (Simple Queries - Privacy-First)
+Lokka MCP is ideal for common Microsoft Graph queries:
+- **Users & Groups** - List users, group memberships, user profiles
+- **Applications** - App registrations, service principals, permissions
+- **Directory Objects** - Organizational units, domains, directory roles
+- **Mail & Calendar** - Messages, events, contacts (with appropriate permissions)
+
+#### Microsoft Enterprise MCP Server (Complex Enterprise Queries)
+
+The Microsoft Enterprise MCP Server provides access to enterprise-grade Microsoft Graph features that require MCP-specific permissions:
+
+**Enterprise Features:**
+- **Audit Logs** - Sign-in logs, directory audit logs, and security events
+- **Privileged Identity Management (PIM)** - Role assignments and eligible roles
+- **Conditional Access** - Policy configurations and compliance status
+- **Device Compliance** - Intune device status and compliance policies
+
+**Intelligent Query Routing:**
+When both Lokka MCP and Microsoft Enterprise MCP are enabled (recommended), queries are automatically routed:
+- Simple queries (users, groups, applications) → **Lokka MCP** (fast, privacy-first)
+- Enterprise queries (audit logs, PIM, compliance) → **Microsoft Enterprise MCP** (cloud)
+
+#### Prerequisites for Microsoft Enterprise MCP
+
+1. **Admin Role** - You must have one of these Entra ID roles:
+   - Global Administrator
+   - Cloud Application Administrator
+
+2. **PowerShell** - Either:
+   - Windows PowerShell (included with Windows)
+   - PowerShell Core (`pwsh`) on macOS/Linux
+
+3. **Microsoft.Entra.Beta PowerShell Module**
+
+#### Enabling Microsoft Enterprise MCP
+
+**Step 1: Install the Microsoft.Entra.Beta PowerShell Module**
+```powershell
+Install-Module Microsoft.Entra.Beta -Force -AllowClobber
+```
+
+**Step 2: Connect to your Entra tenant with required scopes**
+```powershell
+Connect-Entra -Scopes 'Application.ReadWrite.All', 'Directory.Read.All', 'DelegatedPermissionGrant.ReadWrite.All'
+```
+This will open a browser for interactive authentication.
+
+**Step 3: Grant MCP Server permissions**
+```powershell
+Grant-EntraBetaMCPServerPermission -ApplicationName 'ChatGPT'
+```
+
+> **Note:** The cmdlet only accepts pre-registered MCP client applications: `VisualStudioCode`, `VisualStudio`, `ChatGPT`, or `Claude`. Using any of these grants the MCP permissions at the tenant level, which EntraPulse Lite can then leverage when connecting to the Microsoft Enterprise MCP server.
+
+**Step 4: Enable in EntraPulse Lite**
+1. Open Settings → MCP Server Configuration
+2. Toggle "Enable Microsoft Enterprise MCP" to ON
+3. The app will now route enterprise queries to the Microsoft MCP server
+
+> **Reference:** [Microsoft Graph MCP Server Documentation](https://learn.microsoft.com/en-us/graph/mcp-server/get-started)
+
+#### Verifying MCP Permissions (Troubleshooting)
+
+To confirm the MCP permissions were granted correctly:
+
+```powershell
+# Get your app's Service Principal (replace with your Client ID)
+$appSp = Get-EntraBetaServicePrincipal -Filter "appId eq '<your-client-id>'"
+
+# Check OAuth2 permission grants
+$grants = Get-EntraBetaServicePrincipalOAuth2PermissionGrant -ServicePrincipalId $appSp.Id
+
+# View granted scopes (should include MCP.* permissions)
+$grants.Scope
+```
+
+**Expected MCP scopes** after running `Grant-EntraBetaMCPServerPermission`:
+- `MCP.AuditLog.Read.All`
+- `MCP.Policy.Read.ConditionalAccess`
+- `MCP.RoleManagement.Read.Directory`
+- `MCP.User.Read.All`
+
+#### Licensing Requirements
+
+Some Microsoft Enterprise MCP features require specific Entra ID licenses:
+
+| Feature | Required License |
+|---------|-----------------|
+| Audit Logs (Sign-ins) | Entra ID P1 or P2 |
+| Privileged Identity Management | Entra ID P2 |
+| Conditional Access | Entra ID P1 or P2 |
+| Identity Protection | Entra ID P2 |
+
+If you receive a `403 Forbidden` error with message `Authentication_RequestFromNonPremiumTenantOrB2CTenant`, your tenant does not have the required premium license for that feature.
 
 ### Natural Language Queries
 Ask questions in plain English:

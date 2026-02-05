@@ -161,18 +161,18 @@ export class UnifiedLLMService {
           } else if (routingDecision.server === 'lokka' || routingDecision.server === null) {
             // Use Lokka (external-lokka preferred)
             serverName = availableServers.includes('external-lokka') ? 'external-lokka' : 'lokka';
-            toolName = 'microsoft_graph_query';
+            toolName = 'Lokka-Microsoft';
             console.log('✅ UnifiedLLMService: Routing to Lokka MCP');
           } else {
             // Fallback to external-lokka if routing failed
             serverName = availableServers.includes('external-lokka') ? 'external-lokka' : 'lokka';
-            toolName = 'microsoft_graph_query';
+            toolName = 'Lokka-Microsoft';
             console.log('⚠️  UnifiedLLMService: Routing failed, falling back to Lokka');
           }
         } else {
           // Legacy behavior: prefer external-lokka
           serverName = availableServers.includes('external-lokka') ? 'external-lokka' : 'lokka';
-          toolName = 'microsoft_graph_query';
+          toolName = 'Lokka-Microsoft';
           console.log('ℹ️  UnifiedLLMService: No MCP config, using default Lokka routing');
         }
 
@@ -182,10 +182,10 @@ export class UnifiedLLMService {
         let rawResult: any;
 
         if (serverName === 'microsoft-enterprise') {
-          // Microsoft Enterprise MCP uses different parameter format
+          // Microsoft Enterprise MCP uses MCP protocol with microsoft_graph_get tool
+          // The tool expects just the Graph API URL path, method is always GET
           rawResult = await this.mcpClient!.callTool(serverName, toolName, {
-            url: query.endpoint,
-            method: method.toUpperCase()
+            url: query.endpoint
           });
           console.log('Microsoft Enterprise MCP response received');
         } else {

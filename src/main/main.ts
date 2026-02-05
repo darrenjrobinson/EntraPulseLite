@@ -7,7 +7,7 @@ import { GraphService } from '../shared/GraphService';
 import { ConfigService } from '../shared/ConfigService';
 import { LLMService } from '../llm/LLMService';
 import { EnhancedLLMService } from '../llm/EnhancedLLMService';
-import { MCPClient } from '../mcp/clients/MCPSDKClient';
+import { MCPClient } from '../mcp/clients/MCPClient';
 import { MCPAuthService } from '../mcp/auth/MCPAuthService';
 import { MCPServerManager } from '../mcp/servers/MCPServerManager';
 import { GraphMCPClient } from '../mcp/clients/GraphMCPClient';
@@ -196,8 +196,8 @@ class EntraPulseLiteApp {
     // Create MCPServerManager with auth service
     console.log('Initializing MCP client with server configs:', this.config.mcpServers);
     this.mcpServerManager = new MCPServerManager(this.config.mcpServers, mcpAuthService, this.configService);
-      // Initialize MCP client with auth service
-    this.mcpClient = new MCPClient(this.config.mcpServers, mcpAuthService);    // Determine LLM configuration based on preferences
+    // Initialize MCP client with auth service and shared server manager
+    this.mcpClient = new MCPClient(this.config.mcpServers, mcpAuthService, this.mcpServerManager);    // Determine LLM configuration based on preferences
     let llmConfig = { ...this.config.llm }; // Start with the full configuration
     const preferLocal = this.config.llm.preferLocal;
     const hasLocalProvider = (this.config.llm.provider === 'ollama' || this.config.llm.provider === 'lmstudio') && 
@@ -253,8 +253,13 @@ class EntraPulseLiteApp {
       }
     }
     
-    // Initialize LLM service with the appropriate configuration
-    this.llmService = new EnhancedLLMService(llmConfig, this.authService, this.mcpClient);
+    // Initialize LLM service with the appropriate configuration and MCP config for routing
+    const mcpConfig = this.configService.getMCPConfig();
+    this.llmService = new EnhancedLLMService(llmConfig, this.authService, this.mcpClient, mcpConfig);
+    console.log('✅ EnhancedLLMService initialized with mcpConfig:', {
+      lokkaEnabled: mcpConfig.lokka?.enabled,
+      microsoftMcpEnabled: mcpConfig.microsoftEnterprise?.enabled
+    });
     
     // Initialize auto-updater service
     this.autoUpdaterService = new AutoUpdaterService(this.configService);
@@ -415,7 +420,28 @@ class EntraPulseLiteApp {
       this.previousClientId = currentClientId;
 
       // Reinitialize AuthService with updated configuration
+      // BUT preserve the authentication state if user is already logged in
+      const previousAuthService = this.authService;
+      const previousAccount = previousAuthService ? await previousAuthService.getCurrentUser() : null;
+      
       this.authService = new AuthService(this.config);
+      
+      // Restore the account from cache if user was previously authenticated
+      if (previousAccount) {
+        console.log('[Main] 🔄 Restoring authentication state from previous session...');
+        try {
+          // Try to restore account by getting token silently (which will set the account)
+          const token = await this.authService.getToken();
+          if (token) {
+            console.log('[Main] ✅ Authentication state restored successfully');
+          } else {
+            console.log('[Main] ⚠️ Could not restore authentication state - user may need to sign in again');
+          }
+        } catch (error) {
+          console.warn('[Main] ⚠️ Could not restore authentication state:', error);
+          // Non-fatal - user can sign in again
+        }
+      }
       
       // Update GraphService with new AuthService
       this.graphService = new GraphService(this.authService);
@@ -455,7 +481,7 @@ class EntraPulseLiteApp {
           envKeys: s.env ? Object.keys(s.env) : []        }))
       );      
       this.mcpServerManager = new MCPServerManager(this.config.mcpServers, mcpAuthService, this.configService);
-      this.mcpClient = new MCPClient(this.config.mcpServers, mcpAuthService);
+      this.mcpClient = new MCPClient(this.config.mcpServers, mcpAuthService, this.mcpServerManager);
         
       // Start the new MCP servers explicitly
       console.log('[Main] Starting new MCP servers...');
@@ -577,7 +603,8 @@ class EntraPulseLiteApp {
         this.llmService.dispose();
         console.log('[Main] Disposed previous LLM service instance');
       }
-      this.llmService = new EnhancedLLMService(llmConfig, this.authService, this.mcpClient);
+      const mcpConfigReinit = this.configService.getMCPConfig();
+      this.llmService = new EnhancedLLMService(llmConfig, this.authService, this.mcpClient, mcpConfigReinit);
       
       console.log('[Main] Services reinitialized successfully');
         // Notify renderer that configuration has been updated - but only if not already notified
@@ -965,8 +992,13 @@ class EntraPulseLiteApp {
           // Get the full LLM configuration now that we're authenticated
           const fullLLMConfig = this.configService.getLLMConfig();
           console.log('🔧 Reloading LLM service with full configuration including cloud providers');
-          // Reinitialize LLM service with full config
-          this.llmService = new EnhancedLLMService(fullLLMConfig, this.authService, this.mcpClient);
+          // Reinitialize LLM service with full config and MCP config
+          const mcpConfigAuth = this.configService.getMCPConfig();
+          this.llmService = new EnhancedLLMService(fullLLMConfig, this.authService, this.mcpClient, mcpConfigAuth);
+          console.log('✅ LLM service reinitialized after auth with mcpConfig:', {
+            lokkaEnabled: mcpConfigAuth.lokka?.enabled,
+            microsoftMcpEnabled: mcpConfigAuth.microsoftEnterprise?.enabled
+          });
           
           // Always configure Lokka MCP for authenticated users
           console.log('🔧 Configuring Lokka MCP server for authenticated user...');
@@ -1143,9 +1175,16 @@ class EntraPulseLiteApp {
             
             // Create new MCP services with updated configuration
             this.mcpServerManager = new MCPServerManager(this.config.mcpServers, mcpAuthService, this.configService);
-            this.mcpClient = new MCPClient(this.config.mcpServers, mcpAuthService);
+            this.mcpClient = new MCPClient(this.config.mcpServers, mcpAuthService, this.mcpServerManager);
             
             console.log('🚀 MCP services reinitialized with authentication context');
+            
+            // CRITICAL: Recreate EnhancedLLMService with the NEW MCPClient
+            // The previous llmService was created with an old MCPClient reference
+            const mcpConfigPostAuth = this.configService.getMCPConfig();
+            const llmConfigPostAuth = this.configService.getLLMConfig();
+            this.llmService = new EnhancedLLMService(llmConfigPostAuth, this.authService, this.mcpClient, mcpConfigPostAuth);
+            console.log('✅ EnhancedLLMService recreated with new MCPClient after MCP reinitialization');
             
             // NOW explicitly start the Lokka MCP server after successful authentication
             console.log('🔄 [LOKKA-RESTART] Starting Lokka MCP server after successful authentication...');
@@ -1565,7 +1604,13 @@ class EntraPulseLiteApp {
           const mcpAuthService = new MCPAuthService(this.authService);
           await this.mcpServerManager.stopAllServers();
           this.mcpServerManager = new MCPServerManager(this.config.mcpServers, mcpAuthService, this.configService);
-          this.mcpClient = new MCPClient(this.config.mcpServers, mcpAuthService);
+          this.mcpClient = new MCPClient(this.config.mcpServers, mcpAuthService, this.mcpServerManager);
+          
+          // CRITICAL: Recreate EnhancedLLMService with the NEW MCPClient
+          const mcpConfigRestart = this.configService.getMCPConfig();
+          const llmConfigRestart = this.configService.getLLMConfig();
+          this.llmService = new EnhancedLLMService(llmConfigRestart, this.authService, this.mcpClient, mcpConfigRestart);
+          console.log('✅ EnhancedLLMService recreated with new MCPClient after Lokka restart');
           
           console.log('✅ Restarted Lokka MCP server with new authentication mode');
           
@@ -1715,7 +1760,8 @@ class EntraPulseLiteApp {
             console.log('🧹 Disposed previous LLM service instance before reinitializing');
           }
           
-          this.llmService = new EnhancedLLMService(llmConfig, this.authService, this.mcpClient);
+          const mcpConfigProvider = this.configService.getMCPConfig();
+          this.llmService = new EnhancedLLMService(llmConfig, this.authService, this.mcpClient, mcpConfigProvider);
           
           // DEBUG: Check if config still exists immediately after LLM service creation
           const postInitConfig = this.configService.getLLMConfig();
@@ -2346,7 +2392,12 @@ class EntraPulseLiteApp {
           // Reload LLM service with full configuration
         const fullLLMConfig = this.configService.getLLMConfig();
         console.log('🔧 Initializing LLM service with full configuration from existing session');
-          this.llmService = new EnhancedLLMService(fullLLMConfig, this.authService, this.mcpClient);
+          const mcpConfigSession = this.configService.getMCPConfig();
+          this.llmService = new EnhancedLLMService(fullLLMConfig, this.authService, this.mcpClient, mcpConfigSession);
+          console.log('✅ LLM service initialized from session with mcpConfig:', {
+            lokkaEnabled: mcpConfigSession.lokka?.enabled,
+            microsoftMcpEnabled: mcpConfigSession.microsoftEnterprise?.enabled
+          });
           
           // Get current user token for MCP configuration
           console.log('🔐 Getting current user access token for MCP configuration...');
@@ -2385,9 +2436,15 @@ class EntraPulseLiteApp {
           
           // Initialize new MCP services with updated configuration
           this.mcpServerManager = new MCPServerManager(this.config.mcpServers, mcpAuthService, this.configService);
-          this.mcpClient = new MCPClient(this.config.mcpServers, mcpAuthService);
+          this.mcpClient = new MCPClient(this.config.mcpServers, mcpAuthService, this.mcpServerManager);
           
           console.log('🚀 MCP services reinitialized with current user token');
+          
+          // CRITICAL: Recreate EnhancedLLMService with the NEW MCPClient
+          const mcpConfigInit = this.configService.getMCPConfig();
+          const llmConfigInit = this.configService.getLLMConfig();
+          this.llmService = new EnhancedLLMService(llmConfigInit, this.authService, this.mcpClient, mcpConfigInit);
+          console.log('✅ EnhancedLLMService recreated with new MCPClient after initialization');
           
           // Check if we have stored Entra credentials and update MCP server config
           console.log('🔧 Checking for stored Entra credentials during initialization...');
@@ -2531,9 +2588,15 @@ class EntraPulseLiteApp {
             
             // Create new MCP services with updated configuration
             this.mcpServerManager = new MCPServerManager(this.config.mcpServers, mcpAuthService, this.configService);
-            this.mcpClient = new MCPClient(this.config.mcpServers, mcpAuthService);
+            this.mcpClient = new MCPClient(this.config.mcpServers, mcpAuthService, this.mcpServerManager);
             
             console.log('🚀 MCP services reinitialized with Entra credentials during startup');
+            
+            // CRITICAL: Recreate EnhancedLLMService with the NEW MCPClient
+            const mcpConfigEntra = this.configService.getMCPConfig();
+            const llmConfigEntra = this.configService.getLLMConfig();
+            this.llmService = new EnhancedLLMService(llmConfigEntra, this.authService, this.mcpClient, mcpConfigEntra);
+            console.log('✅ EnhancedLLMService recreated with new MCPClient after Entra credential update');
           }
         } else {
           console.log('⚠️ No stored Entra credentials found for Lokka MCP server during startup');
@@ -2632,19 +2695,31 @@ class EntraPulseLiteApp {
     try {
       console.log('[Main] Checking if Lokka MCP server is running...');
       
-      // First check if Lokka is enabled in the configuration
-      const lokkaConfig = this.config.mcpServers.find(server => server.name === 'external-lokka');
+      // Check if Lokka is enabled in the current saved configuration (not cached config)
+      // This ensures we respect user changes made in settings
+      const mcpConfig = this.configService.getMCPConfig();
+      const isLokkaEnabled = this.configService.isLokkaMCPConfigured();
       
       console.log('[Main] Lokka MCP server configuration check:', {
-        found: Boolean(lokkaConfig),
-        enabled: lokkaConfig?.enabled,
-        hasEnv: Boolean(lokkaConfig?.env),
-        envKeys: lokkaConfig?.env ? Object.keys(lokkaConfig.env) : []
+        lokkaConfigExists: Boolean(mcpConfig.lokka),
+        lokkaEnabled: mcpConfig.lokka?.enabled,
+        isLokkaMCPConfigured: isLokkaEnabled
       });
-        if (!lokkaConfig || !lokkaConfig.enabled) {
+      
+      if (!isLokkaEnabled) {
         console.log('[Main] Lokka MCP server not enabled in configuration');
         return false;
       }
+      
+      // Also check the in-memory config for server process status
+      const lokkaServerConfig = this.config.mcpServers.find(server => server.name === 'external-lokka');
+      
+      console.log('[Main] Lokka MCP server process config:', {
+        found: Boolean(lokkaServerConfig),
+        enabled: lokkaServerConfig?.enabled,
+        hasEnv: Boolean(lokkaServerConfig?.env),
+        envKeys: lokkaServerConfig?.env ? Object.keys(lokkaServerConfig.env) : []
+      });
       
       // Check if the server is in the available servers list
       const availableServers = this.mcpClient.getAvailableServers();
@@ -2658,14 +2733,26 @@ class EntraPulseLiteApp {
       if (lokkaServerExists) {
         console.log('[Main] Lokka MCP server found in available servers');
         
-        // Try to validate if it's actually running by attempting to list tools
+        // Check if Lokka is actually running by checking its ready status
+        // Note: We don't use listTools() because Lokka doesn't support that method
         try {
-          // Just checking if the server is actually available
-          await this.mcpClient.listTools('external-lokka');
-          console.log('[Main] ✅ Lokka MCP server is running and responding');
-          return true;
+          const lokkaServer = this.mcpServerManager.getServer('external-lokka');
+          if (lokkaServer && typeof (lokkaServer as any).isReady === 'function') {
+            const isReady = (lokkaServer as any).isReady();
+            if (isReady) {
+              console.log('[Main] ✅ Lokka MCP server is running and ready');
+              return true;
+            } else {
+              console.log('[Main] Lokka MCP server exists but is not ready');
+              // Will try to restart below
+            }
+          } else {
+            // Server exists, assume it's working
+            console.log('[Main] ✅ Lokka MCP server found (assuming ready)');
+            return true;
+          }
         } catch (error) {
-          console.warn('[Main] Lokka MCP server exists but failed to respond:', error);
+          console.warn('[Main] Lokka MCP server exists but failed to check status:', error);
           // Will try to restart below
         }
       } else {
@@ -2735,18 +2822,29 @@ class EntraPulseLiteApp {
       
       // Determine authentication mode based on current configuration
       let authMode: 'client-credentials' | 'enhanced-graph-access' | 'delegated' = 'delegated';
-      let enabled = false;
+      let canBeEnabled = false;
       
       if (storedEntraConfig?.useGraphPowerShell) {
         authMode = 'enhanced-graph-access';
-        enabled = true;
+        canBeEnabled = true;
       } else if (authConfig.clientSecret && authConfig.clientId && authConfig.tenantId) {
         authMode = 'client-credentials';
-        enabled = true;
+        canBeEnabled = true;
       } else if (authConfig.clientId && authConfig.tenantId) {
         authMode = 'delegated';
-        enabled = true;
+        canBeEnabled = true;
       }
+      
+      // Preserve user's enabled preference from existing config
+      // Only use canBeEnabled as a default if no existing config exists
+      const userEnabledPreference = existingMCPConfig.lokka?.enabled;
+      const enabled = userEnabledPreference !== undefined ? userEnabledPreference : canBeEnabled;
+      
+      console.log('[Main] Lokka enabled state:', {
+        userEnabledPreference,
+        canBeEnabled,
+        finalEnabled: enabled
+      });
       
       // Update MCP configuration (this will merge with existing settings)
       const mcpConfigUpdate: Partial<MCPConfig['lokka']> = {
@@ -2841,9 +2939,20 @@ class EntraPulseLiteApp {
           type: 'none' // Microsoft Docs MCP doesn't require authentication
         }
       },
+      {
+        name: 'microsoft-enterprise',
+        type: 'microsoft-enterprise' as const,
+        port: 0, // Not used for HTTP-based MCP servers
+        enabled: mcpConfig.microsoftEnterprise?.enabled ?? false,
+        url: 'https://mcp.svc.cloud.microsoft/enterprise', // Microsoft MCP Server for Enterprise endpoint
+        authConfig: {
+          type: 'msal' // Uses MSAL to acquire bearer token for authentication
+        }
+      },
     ];
     
     console.log('[Main] createMCPServerConfig returning:', serverConfigs);
+    console.log('[Main] Microsoft Enterprise MCP enabled:', mcpConfig.microsoftEnterprise?.enabled ?? false);
     return serverConfigs;
   }
 

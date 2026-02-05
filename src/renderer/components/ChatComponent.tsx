@@ -427,6 +427,7 @@ export const ChatComponent: React.FC<ChatComponentProps> = () => {
           ...metadata,
           queryAnalysis: typedResponse.analysis,
           mcpResults: typedResponse.mcpResults,
+          mcpServerUsed: typedResponse.mcpServerUsed,
           traceData: typedResponse.traceData,
         };
       } else {
@@ -907,8 +908,8 @@ What would you like to explore?`,
           }>
             <Chip
               label={
-                mcpStatus.mode === 'auto-routing' ? '🔒☁️ Auto-routing' :
-                mcpStatus.mode === 'lokka-only' ? '🔒 Lokka' :
+                mcpStatus.mode === 'auto-routing' ? '🏠☁️ Auto-routing' :
+                mcpStatus.mode === 'lokka-only' ? '🏠 Lokka' :
                 mcpStatus.mode === 'microsoft-only' ? '☁️ Microsoft MCP' :
                 'No MCP'
               }
@@ -1272,7 +1273,12 @@ What would you like to explore?`,
                                 {message.metadata.queryAnalysis.needsFetchMcp && (
                                   <Chip label="Fetch MCP" size="small" color="info" />
                                 )}
-                                {message.metadata.queryAnalysis.needsLokkaMcp && (
+                                {/* Show actual MCP server used, or fall back to needsLokkaMcp */}
+                                {message.metadata.mcpServerUsed === 'microsoft-enterprise' ? (
+                                  <Chip label="Microsoft Enterprise MCP" size="small" color="secondary" />
+                                ) : message.metadata.mcpServerUsed === 'lokka' ? (
+                                  <Chip label="Lokka MCP" size="small" color="success" />
+                                ) : message.metadata.queryAnalysis.needsLokkaMcp && (
                                   <Chip label="Lokka MCP" size="small" color="success" />
                                 )}
                               </Box>
@@ -1325,6 +1331,13 @@ What would you like to explore?`,
                                 <Box>
                                   <Typography variant="body2" sx={{ fontSize: '0.85rem' }}>
                                     Lokka MCP: {JSON.stringify(message.metadata.mcpResults.lokkaResult, null, 2).substring(0, 200)}...
+                                  </Typography>
+                                </Box>
+                              )}
+                              {message.metadata.mcpResults.microsoftEnterpriseResult && (
+                                <Box>
+                                  <Typography variant="body2" sx={{ fontSize: '0.85rem' }}>
+                                    Microsoft Enterprise MCP: {JSON.stringify(message.metadata.mcpResults.microsoftEnterpriseResult, null, 2).substring(0, 200)}...
                                   </Typography>
                                 </Box>
                               )}

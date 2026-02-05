@@ -157,7 +157,7 @@ async function testQueryRouter() {
   console.log('🧭 Testing Query Routing (Both servers enabled):\n');
   testQueries.forEach((query, index) => {
     const decision = MCPQueryRouter.routeQuery(query, config);
-    const serverIcon = decision.server === 'microsoft-enterprise' ? '☁️' : '🔒';
+    const serverIcon = decision.server === 'microsoft-enterprise' ? '☁️' : '🏠';
     console.log(`${index + 1}. Query: "${query}"`);
     console.log(`   ${serverIcon} Server: ${decision.server}`);
     console.log(`   Reason: ${decision.reason}`);

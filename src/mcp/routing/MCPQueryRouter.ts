@@ -42,6 +42,8 @@ export const ENTERPRISE_KEYWORDS = {
     'activity',
     'failed login',
     'authentication attempt',
+    'authentication event',
+    'authentication',
     'security event',
     'audit log',
     'sign-in log',

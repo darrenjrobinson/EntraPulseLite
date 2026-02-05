@@ -2,7 +2,7 @@
 // Integrates unified LLM (local/cloud), Fetch MCP, and Lokka MCP components for intelligent query handling
 
 import axios from 'axios';
-import { LLMConfig, ChatMessage } from '../types';
+import { LLMConfig, ChatMessage, MCPConfig } from '../types';
 import { MCPClient } from '../mcp/clients';
 import { MCPAuthService } from '../mcp/auth/MCPAuthService';
 import { MCPServerConfig } from '../mcp/types';
@@ -10,11 +10,13 @@ import { AuthService } from '../auth/AuthService';
 import { UnifiedLLMService } from './UnifiedLLMService';
 import { UnifiedPromptService, PermissionContext } from './UnifiedPromptService';
 import { conversationContextManager, ConversationContextManager } from '../shared/ConversationContextManager';
+import { MCPQueryRouter, RoutingDecision } from '../mcp/routing/MCPQueryRouter';
 
 export interface QueryAnalysis {
   needsFetchMcp: boolean;
   needsLokkaMcp: boolean;
   needsMicrosoftDocsMcp: boolean;
+  needsMicrosoftEnterpriseMcp?: boolean; // Added for enterprise MCP routing
   graphEndpoint?: string;
   graphMethod?: string;
   graphParams?: any;
@@ -30,7 +32,9 @@ export interface EnhancedLLMResponse {
     fetchResult?: any;
     lokkaResult?: any;
     microsoftDocsResult?: any;
+    microsoftEnterpriseResult?: any;
   };
+  mcpServerUsed?: 'lokka' | 'microsoft-enterprise';
   finalResponse: string;
   traceData: {
     steps: string[];
@@ -46,11 +50,13 @@ export class EnhancedLLMService {
   private mcpAuthService: MCPAuthService;
   private unifiedLLM: UnifiedLLMService;
   private isDisposed: boolean = false;
+  private mcpConfig?: MCPConfig;
 
-  constructor(config: LLMConfig, authService: AuthService, mcpClient?: MCPClient) {
+  constructor(config: LLMConfig, authService: AuthService, mcpClient?: MCPClient, mcpConfig?: MCPConfig) {
     this.config = config;
     this.authService = authService;
     this.mcpAuthService = new MCPAuthService(authService);
+    this.mcpConfig = mcpConfig;
     
     // Use provided MCPClient or create a fallback one
     if (mcpClient) {
@@ -89,8 +95,13 @@ export class EnhancedLLMService {
       this.mcpClient = new MCPClient(serverConfigs, this.mcpAuthService);
     }
     
-    // Initialize UnifiedLLMService with MCP client for enhanced model discovery
-    this.unifiedLLM = new UnifiedLLMService(config, this.mcpClient);
+    // Initialize UnifiedLLMService with MCP client and config for enhanced model discovery and routing
+    this.unifiedLLM = new UnifiedLLMService(config, this.mcpClient, this.mcpConfig);
+    console.log('EnhancedLLMService: Initialized UnifiedLLMService with mcpConfig:', {
+      hasConfig: !!this.mcpConfig,
+      lokkaEnabled: this.mcpConfig?.lokka?.enabled,
+      microsoftMcpEnabled: this.mcpConfig?.microsoftEnterprise?.enabled
+    });
   }
 
   /**
@@ -140,7 +151,8 @@ export class EnhancedLLMService {
       const analysis = await this.analyzeQuery(userQuery, conversationContext);
       trace.push(`Query analysis completed: ${analysis.reasoning}`);// Step 2: MCP servers are automatically initialized in constructor
       trace.push('MCP servers ready');      // Step 3: Execute MCP operations based on analysis
-      const mcpResults: { fetchResult?: any; lokkaResult?: any; microsoftDocsResult?: any } = {};      // Microsoft Docs MCP for documentation (preferred)
+      const mcpResults: { fetchResult?: any; lokkaResult?: any; microsoftDocsResult?: any; microsoftEnterpriseResult?: any } = {};
+      let mcpServerUsed: 'lokka' | 'microsoft-enterprise' | undefined = undefined;      // Microsoft Docs MCP for documentation (preferred)
       if (analysis.needsMicrosoftDocsMcp) {
         try {
           trace.push('Attempting Microsoft Docs MCP via HTTP Streamable transport');
@@ -209,35 +221,283 @@ export class EnhancedLLMService {
         }
       }
 
-      // Lokka MCP for Microsoft Graph data
+      // Microsoft Graph data - Use intelligent routing between Lokka and Microsoft Enterprise MCP
       if (analysis.needsLokkaMcp && analysis.graphEndpoint) {
         try {
-          trace.push('Calling Lokka MCP for Graph data');
+          // Determine which MCP server to use based on query routing
+          // Debug: Log the mcpConfig values to understand routing
+          console.log('🔍 EnhancedLLMService: MCP config for routing:', {
+            hasMcpConfig: !!this.mcpConfig,
+            lokkaConfig: this.mcpConfig?.lokka,
+            microsoftEnterpriseConfig: this.mcpConfig?.microsoftEnterprise,
+            lokkaEnabled: this.mcpConfig?.lokka?.enabled,
+            microsoftMcpEnabled: this.mcpConfig?.microsoftEnterprise?.enabled
+          });
           
-          // Convert query parameters to strings as required by Lokka MCP
+          const routingConfig = {
+            lokkaEnabled: this.mcpConfig?.lokka?.enabled ?? true,
+            microsoftMcpEnabled: this.mcpConfig?.microsoftEnterprise?.enabled ?? false
+          };
+          
+          console.log('🔍 EnhancedLLMService: Final routing config:', routingConfig);
+          
+          const routingDecision = MCPQueryRouter.routeQuery(userQuery, routingConfig);
+          console.log('🧭 EnhancedLLMService: Routing decision:', {
+            server: routingDecision.server,
+            reason: routingDecision.reason,
+            confidence: routingDecision.confidence,
+            keywords: routingDecision.keywords
+          });
+          
+          // Convert query parameters to strings as required by MCP
           const stringifiedQueryParams = analysis.graphParams ? 
             Object.fromEntries(
               Object.entries(analysis.graphParams).map(([key, value]) => [
                 key, 
                 typeof value === 'string' ? value : String(value)
               ])
-            ) : undefined;          // Ensure method is lowercase as required by Lokka MCP
+            ) : undefined;
+          
+          // Ensure method is lowercase as required by MCP
           const method = (analysis.graphMethod || 'get').toLowerCase();
-            // Use external-lokka server directly
-          const serverName = 'external-lokka';
-          const toolName = 'microsoft_graph_query';
           
-          console.log(`🔧 EnhancedLLMService: Using MCP server: ${serverName}, tool: ${toolName}`);
+          // Route to appropriate MCP server
+          const availableServers = this.mcpClient.getAvailableServerNames();
           
-          mcpResults.lokkaResult = await this.mcpClient.callTool(serverName, toolName, {
-            apiType: 'graph',
-            method: method,
-            endpoint: analysis.graphEndpoint,
-            queryParams: stringifiedQueryParams
-          });
-          trace.push('Lokka MCP completed successfully');
+          if (routingDecision.server === 'microsoft-enterprise' && availableServers.includes('microsoft-enterprise')) {
+            // Use Microsoft Enterprise MCP with the recommended two-step workflow:
+            // 1. First call microsoft_graph_suggest_queries to get the right Graph API call
+            // 2. Then call microsoft_graph_get with the suggested URL
+            trace.push(`Calling Microsoft Enterprise MCP for Graph data (${routingDecision.reason})`);
+            console.log('✅ EnhancedLLMService: Routing to Microsoft Enterprise MCP');
+            mcpServerUsed = 'microsoft-enterprise';
+            
+            try {
+              // Step 1: Use microsoft_graph_suggest_queries to get the appropriate Graph API call
+              // Pass the ORIGINAL user query to get better suggestions, not just the endpoint
+              const intentDescription = userQuery;
+              console.log('🔍 EnhancedLLMService: Calling microsoft_graph_suggest_queries with intentDescription:', intentDescription);
+              trace.push(`Calling microsoft_graph_suggest_queries for: "${intentDescription}"`);
+              
+              const suggestResult = await this.mcpClient.callTool('microsoft-enterprise', 'microsoft_graph_suggest_queries', {
+                intentDescription: intentDescription
+              });
+              
+              console.log('📋 EnhancedLLMService: Suggest queries result:', suggestResult);
+              trace.push(`Graph API suggestions received`);
+              
+              // Step 2: Build the relativeUrl from analysis or suggestions
+              // Start with analyzed endpoint as fallback
+              let relativeUrl = analysis.graphEndpoint || '/users';
+              
+              // Try to extract the best URL from the suggestions
+              if (suggestResult && suggestResult.content && !suggestResult.isError) {
+                const textContent = suggestResult.content.find((item: any) => item.type === 'text');
+                if (textContent?.text) {
+                  console.log('🔍 EnhancedLLMService: Parsing suggestions:', textContent.text);
+                  
+                  // Parse all suggestions to find the most relevant one
+                  // Format: "- Score: 65.0 %\n  RetrievalText: how many users\n  Steps: /v1.0/users/$count"
+                  const suggestions = textContent.text.split(/(?=- Score:)/);
+                  let bestMatch: { url: string; score: number; text: string } | null = null;
+                  
+                  for (const suggestion of suggestions) {
+                    if (!suggestion.trim()) continue;
+                    
+                    // Extract score
+                    const scoreMatch = suggestion.match(/Score:\s*([\d.]+)/);
+                    const score = scoreMatch ? parseFloat(scoreMatch[1]) : 0;
+                    
+                    // Extract retrieval text (what the suggestion is about)
+                    const retrievalMatch = suggestion.match(/RetrievalText:\s*([^\n]+)/);
+                    const retrievalText = retrievalMatch ? retrievalMatch[1].trim().toLowerCase() : '';
+                    
+                    // Extract the Steps URL - get everything after "Steps:" until end or next line that starts with "-"
+                    // Handle multi-line Steps (like "Execute All\n\n/v1.0/...")
+                    const stepsMatch = suggestion.match(/Steps:\s*(?:>-\s*)?(.+?)(?=\n\s*-|$)/s);
+                    if (!stepsMatch) continue;
+                    
+                    let stepsContent = stepsMatch[1].trim();
+                    
+                    // Skip if Steps contains instructions/text instead of a URL
+                    if (stepsContent.includes('not currently supported') || 
+                        stepsContent.includes('**IMPORTANT!**') ||
+                        stepsContent.startsWith('Searching for')) {
+                      continue;
+                    }
+                    
+                    // Extract the actual URL from the steps (might have "Execute All" prefix or other text)
+                    const urlMatch = stepsContent.match(/(\/(?:v1\.0|beta)?\/[^\n]+?)$/m) || 
+                                     stepsContent.match(/^\/?(?:v1\.0|beta)?(\/[^\n]+)/);
+                    if (!urlMatch) continue;
+                    
+                    let suggestedUrl = urlMatch[1] || urlMatch[0];
+                    suggestedUrl = suggestedUrl.trim();
+                    
+                    // Remove version prefix if present (MCP expects relative URL without version)
+                    suggestedUrl = suggestedUrl.replace(/^\/v1\.0/, '').replace(/^\/beta/, '');
+                    
+                    // Skip if it doesn't look like a valid Graph API URL
+                    if (!suggestedUrl.startsWith('/')) continue;
+                    
+                    console.log(`🔍 EnhancedLLMService: Found suggestion - Score: ${score}, Text: "${retrievalText}", URL: ${suggestedUrl}`);
+                    
+                    // Prioritize URLs that are more relevant to the query
+                    // For simple user/count queries, prefer simpler URLs
+                    const queryLower = userQuery.toLowerCase();
+                    let relevanceBoost = 0;
+                    let relevancePenalty = 0;
+                    
+                    // Determine if this is a simple count query (e.g., "how many groups/users")
+                    const isSimpleCountQuery = (queryLower.includes('how many') || queryLower.match(/count\s*(of\s+)?(?:all\s+)?(?:users?|groups?)/)) 
+                      && !queryLower.includes('with') && !queryLower.includes('where') && !queryLower.includes('filter');
+                    
+                    // Boost if retrieval text matches key terms in the query
+                    if (queryLower.includes('user') && retrievalText.includes('user') && !retrievalText.includes('group')) relevanceBoost += 25;
+                    if (queryLower.includes('group') && retrievalText.includes('group') && !retrievalText.includes('user')) relevanceBoost += 25;
+                    if (queryLower.includes('guest') && retrievalText.includes('guest')) relevanceBoost += 30;
+                    
+                    // For "how many users/groups" - boost retrieval text that mentions counting or "how many"
+                    if (queryLower.includes('how many') || queryLower.includes('count')) {
+                      if (retrievalText.includes('how many') || retrievalText.includes('number of') || retrievalText.includes('count')) relevanceBoost += 20;
+                    }
+                    
+                    // For simple count queries, prefer direct $count endpoints over complex filtered queries
+                    if (isSimpleCountQuery) {
+                      // Strongly prefer URLs that end with /$count (direct count endpoint)
+                      if (suggestedUrl.match(/\/\$count$/)) {
+                        relevanceBoost += 40;
+                      }
+                      // Penalize complex URLs with $filter when doing simple counts
+                      if (suggestedUrl.includes('$filter=')) {
+                        relevancePenalty += 30;
+                      }
+                      // Penalize enterprise/analytics endpoints for simple queries
+                      if (suggestedUrl.includes('/reports/') || suggestedUrl.includes('/identityAnalytics/')) {
+                        relevancePenalty += 25;
+                      }
+                      // Penalize URLs with template variables for simple queries
+                      if (suggestedUrl.includes('<') && suggestedUrl.includes('>')) {
+                        relevancePenalty += 50;
+                      }
+                    }
+                    
+                    // Penalize suggestions that don't match the entity type being queried
+                    if (queryLower.includes('user') && !queryLower.includes('group') && retrievalText.includes('group') && !retrievalText.includes('user')) {
+                      relevancePenalty += 40;
+                    }
+                    if (queryLower.includes('group') && !queryLower.includes('user') && retrievalText.includes('user') && !retrievalText.includes('group')) {
+                      relevancePenalty += 40;
+                    }
+                    
+                    // Penalize suggestions about permissions/settings when asking about counts
+                    if ((queryLower.includes('how many') || queryLower.includes('count')) && 
+                        (retrievalText.includes('setting') || retrievalText.includes('permission') || retrievalText.includes('policy'))) {
+                      relevancePenalty += 35;
+                    }
+                    
+                    const adjustedScore = score + relevanceBoost - relevancePenalty;
+                    console.log(`    -> Adjusted score: ${adjustedScore} (original: ${score}, boost: +${relevanceBoost}, penalty: -${relevancePenalty})`)
+                    
+                    if (!bestMatch || adjustedScore > bestMatch.score) {
+                      bestMatch = { url: suggestedUrl, score: adjustedScore, text: retrievalText };
+                    }
+                  }
+                  
+                  if (bestMatch) {
+                    relativeUrl = bestMatch.url;
+                    console.log(`🎯 EnhancedLLMService: Selected best URL (score: ${bestMatch.score}, text: "${bestMatch.text}"): ${relativeUrl}`);
+                    trace.push(`Using suggested Graph URL: ${relativeUrl}`);
+                  }
+                  
+                  // For simple count queries, if the best match score is low or uses complex endpoints,
+                  // fallback to a simple direct count endpoint
+                  const queryLower = userQuery.toLowerCase();
+                  const isSimpleCountQuery = (queryLower.includes('how many') || queryLower.match(/count\s*(of\s+)?(?:all\s+)?(?:users?|groups?)/)) 
+                    && !queryLower.includes('with') && !queryLower.includes('where') && !queryLower.includes('filter');
+                  
+                  if (isSimpleCountQuery) {
+                    const needsFallback = !bestMatch || 
+                      bestMatch.score < 50 || 
+                      relativeUrl.includes('/reports/') || 
+                      relativeUrl.includes('/identityAnalytics/') ||
+                      relativeUrl.includes('<') ||
+                      relativeUrl.includes('$filter=');
+                    
+                    if (needsFallback) {
+                      let fallbackUrl = '';
+                      if (queryLower.includes('user') && !queryLower.includes('group')) {
+                        fallbackUrl = '/users/$count';
+                      } else if (queryLower.includes('group') && !queryLower.includes('user')) {
+                        fallbackUrl = '/groups/$count';
+                      }
+                      
+                      if (fallbackUrl) {
+                        console.log(`🔄 EnhancedLLMService: Simple count query - using fallback URL instead of complex suggestion: ${fallbackUrl}`);
+                        trace.push(`Using simple count endpoint (fallback): ${fallbackUrl}`);
+                        relativeUrl = fallbackUrl;
+                      }
+                    }
+                  }
+                }
+              }
+              
+              // If analysis provided filter params but the URL doesn't have them, add them
+              if (analysis.graphParams && !relativeUrl.includes('$filter') && !relativeUrl.includes('?')) {
+                const filterValue = analysis.graphParams['$filter'] || analysis.graphParams['filter'];
+                if (filterValue) {
+                  // Build query string from params
+                  const queryParams = new URLSearchParams();
+                  for (const [key, value] of Object.entries(analysis.graphParams)) {
+                    queryParams.set(key.startsWith('$') ? key : `$${key}`, String(value));
+                  }
+                  relativeUrl = `${relativeUrl}?${queryParams.toString()}`;
+                  console.log('🔧 EnhancedLLMService: Added filter params to URL:', relativeUrl);
+                }
+              }
+              
+              // Step 2: Call microsoft_graph_get with the relativeUrl
+              console.log('🔧 EnhancedLLMService: Calling microsoft_graph_get with relativeUrl:', relativeUrl);
+              trace.push(`Calling microsoft_graph_get with: ${relativeUrl}`);
+              
+              mcpResults.microsoftEnterpriseResult = await this.mcpClient.callTool('microsoft-enterprise', 'microsoft_graph_get', {
+                relativeUrl: relativeUrl
+              });
+              
+              trace.push('Microsoft Enterprise MCP completed successfully');
+            } catch (enterpriseError) {
+              console.error('❌ EnhancedLLMService: Microsoft Enterprise MCP error:', enterpriseError);
+              trace.push(`Microsoft Enterprise MCP error: ${enterpriseError}`);
+              
+              // Store the error in results so user can see what happened
+              mcpResults.microsoftEnterpriseResult = {
+                error: true,
+                message: `Microsoft Enterprise MCP Error: ${enterpriseError instanceof Error ? enterpriseError.message : String(enterpriseError)}`
+              };
+            }
+          } else {
+            // Use Lokka MCP (default/fallback)
+            trace.push('Calling Lokka MCP for Graph data');
+            console.log('✅ EnhancedLLMService: Routing to Lokka MCP');
+            mcpServerUsed = 'lokka';
+            
+            const serverName = 'external-lokka';
+            // Lokka MCP tool name is 'Lokka-Microsoft' (not 'microsoft_graph_query')
+            const toolName = 'Lokka-Microsoft';
+            
+            console.log(`🔧 EnhancedLLMService: Using MCP server: ${serverName}, tool: ${toolName}`);
+            
+            // Lokka uses 'path' parameter, not 'endpoint'
+            mcpResults.lokkaResult = await this.mcpClient.callTool(serverName, toolName, {
+              apiType: 'graph',
+              method: method,
+              path: analysis.graphEndpoint,
+              queryParams: stringifiedQueryParams
+            });
+            trace.push('Lokka MCP completed successfully');
+          }
         } catch (error) {
-          const errorMsg = `Lokka MCP failed: ${error}`;
+          const errorMsg = `Graph MCP failed: ${error}`;
           errors.push(errorMsg);
           trace.push(errorMsg);
         }
@@ -259,6 +519,7 @@ export class EnhancedLLMService {
       return {
         analysis,
         mcpResults,
+        mcpServerUsed,
         finalResponse,
         traceData: {
           steps: trace,
@@ -478,7 +739,7 @@ Respond ONLY with a JSON object in this exact format:
   private async generateFinalResponse(
     originalQuery: string, 
     analysis: QueryAnalysis, 
-    mcpResults: { fetchResult?: any; lokkaResult?: any; microsoftDocsResult?: any }
+    mcpResults: { fetchResult?: any; lokkaResult?: any; microsoftDocsResult?: any; microsoftEnterpriseResult?: any }
   ): Promise<string> {
     
     let contextData = '';
@@ -672,6 +933,41 @@ The current authentication session does not have sufficient permissions to acces
         });
       } else {
         console.log('🔍 No lokkaData extracted from result');
+      }
+    }
+
+    // Prepare context from Microsoft Enterprise MCP results
+    if (mcpResults.microsoftEnterpriseResult) {
+      try {
+        console.log('🔍 Processing Microsoft Enterprise MCP result:', mcpResults.microsoftEnterpriseResult);
+        
+        let enterpriseData = mcpResults.microsoftEnterpriseResult;
+        
+        // Handle MCP protocol content array format
+        if (enterpriseData && typeof enterpriseData === 'object' && enterpriseData.content) {
+          const textContent = enterpriseData.content.find((item: any) => item.type === 'text');
+          if (textContent && textContent.text) {
+            // Try to parse as JSON
+            try {
+              enterpriseData = JSON.parse(textContent.text);
+            } catch {
+              enterpriseData = textContent.text;
+            }
+          }
+        }
+        
+        // Check if the response indicates an error
+        if (typeof enterpriseData === 'string' && enterpriseData.includes('error occurred')) {
+          console.warn('Microsoft Enterprise MCP returned an error:', enterpriseData);
+          contextData += `Microsoft Enterprise MCP Error: ${enterpriseData}\n\n`;
+        } else {
+          const processedData = this.processGraphApiData(enterpriseData);
+          if (processedData) {
+            contextData += `Microsoft Graph Data (Enterprise MCP):\n${processedData}\n\n`;
+          }
+        }
+      } catch (error) {
+        console.warn('Error processing Microsoft Enterprise MCP result:', error);
       }
     }
     
