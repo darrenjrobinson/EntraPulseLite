@@ -87,7 +87,7 @@ const rendererConfig = {
       "path": require.resolve("path-browserify"),
       "fs": false,
       "os": require.resolve("os-browserify/browser"),
-      "crypto": require.resolve("crypto-browserify"),
+      "crypto": false, // Not used in renderer - main process uses native Node.js crypto
       "stream": require.resolve("stream-browserify"),
       "util": require.resolve("util"),
       "buffer": require.resolve("buffer"),
