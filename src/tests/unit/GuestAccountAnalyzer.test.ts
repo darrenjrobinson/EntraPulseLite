@@ -20,11 +20,11 @@ describe('GuestAccountAnalyzer', () => {
     it('should return a summary of guest accounts', async () => {
       // Mock responses for total users and guest users
       mockMCPClient.callTool.mockImplementation((serverName, toolName, args) => {
-        if (args.endpoint === '/users/$count' && !args.queryParams) {
+        if (args.path === '/users/$count' && !args.queryParams) {
           return Promise.resolve({
             content: [{ json: '1000' }]
           });
-        } else if (args.endpoint === '/users/$count' && args.queryParams?.$filter === "userType eq 'Guest'") {
+        } else if (args.path === '/users/$count' && args.queryParams?.$filter === "userType eq 'Guest'") {
           return Promise.resolve({
             content: [{ json: '200' }]
           });
@@ -48,18 +48,18 @@ describe('GuestAccountAnalyzer', () => {
       expect(mockMCPClient.callTool).toHaveBeenCalledTimes(2);
       expect(mockMCPClient.callTool).toHaveBeenCalledWith(
         'external-lokka',
-        'microsoft_graph_query',
+        'Lokka-Microsoft',
         expect.objectContaining({
-          endpoint: '/users/$count',
-          method: 'GET'
+          path: '/users/$count',
+          method: 'get'
         })
       );
       expect(mockMCPClient.callTool).toHaveBeenCalledWith(
         'external-lokka',
-        'microsoft_graph_query',
+        'Lokka-Microsoft',
         expect.objectContaining({
-          endpoint: '/users/$count',
-          method: 'GET',
+          path: '/users/$count',
+          method: 'get',
           queryParams: {
             '$filter': "userType eq 'Guest'"
           }
@@ -128,7 +128,7 @@ describe('GuestAccountAnalyzer', () => {
       // Verify correct call was made
       expect(mockMCPClient.callTool).toHaveBeenCalledWith(
         'external-lokka',
-        'microsoft_graph_query',
+        'Lokka-Microsoft',
         {
           apiType: 'graph',
           method: 'get',
@@ -181,10 +181,11 @@ describe('GuestAccountAnalyzer', () => {
       // Verify correct call was made
       expect(mockMCPClient.callTool).toHaveBeenCalledWith(
         'external-lokka',
-        'microsoft_graph_query',
+        'Lokka-Microsoft',
         {
-          endpoint: '/users',
-          method: 'GET',
+          apiType: 'graph',
+          path: '/users',
+          method: 'get',
           queryParams: {
             '$select': 'id,displayName,mail,userPrincipalName,userType,createdDateTime',
             '$filter': "userType eq 'Guest' and endsWith(mail, '@partner.com')",
@@ -232,10 +233,11 @@ describe('GuestAccountAnalyzer', () => {
       // Verify correct call was made
       expect(mockMCPClient.callTool).toHaveBeenCalledWith(
         'external-lokka',
-        'microsoft_graph_query',
+        'Lokka-Microsoft',
         {
-          endpoint: '/users',
-          method: 'GET',
+          apiType: 'graph',
+          path: '/users',
+          method: 'get',
           queryParams: {
             '$select': 'id,mail',
             '$filter': "userType eq 'Guest' and mail ne null",
