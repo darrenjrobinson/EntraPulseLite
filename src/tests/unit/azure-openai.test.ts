@@ -292,7 +292,7 @@ describe('Azure OpenAI Provider Tests', () => {
 
       const models = await cloudLLMService.getAvailableModels();
       
-      expect(models).toEqual(['gpt-35-turbo', 'gpt-4-turbo', 'gpt-4o', 'gpt-4o-mini']);
+      expect(models).toEqual(['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo', 'gpt-35-turbo']);
       expect(mockedAxios.get).toHaveBeenCalledWith(
         'https://test.openai.azure.com/openai/models?api-version=2025-01-01-preview',
         expect.objectContaining({
@@ -414,7 +414,7 @@ describe('Azure OpenAI Provider Tests', () => {
 
       const models = await enhancedCloudLLMService.getAvailableModels();
       
-      expect(models).toEqual(['gpt-4o', 'gpt-4o-mini']);
+      expect(models).toEqual(['gpt-4o-mini', 'gpt-4o']);
     });
   });
 

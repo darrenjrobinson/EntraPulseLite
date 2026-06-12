@@ -8,8 +8,11 @@ import {
   buildOpenAICompletionParams,
   FALLBACK_ANTHROPIC_MODELS,
   FALLBACK_OPENAI_MODELS,
+  testGeminiConnection,
+  FALLBACK_GEMINI_MODELS,
   DEFAULT_ANTHROPIC_MODEL,
-  DEFAULT_OPENAI_MODEL
+  DEFAULT_OPENAI_MODEL,
+  DEFAULT_GEMINI_MODEL
 } from './CloudModelCatalog';
 
 interface CloudLLMConfig extends LLMConfig {
@@ -62,19 +65,9 @@ export class EnhancedCloudLLMService {
         // Validate the key against the Models API (no tokens consumed)
         return !!this.config.apiKey && await testAnthropicConnection(this.config.apiKey);
       } else if (this.config.provider === 'gemini') {
-        // Test with a simple generate content call
-        const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent`, {
-          contents: [{ role: 'user', parts: [{ text: 'Hi' }] }],
-          generationConfig: { maxOutputTokens: 1 }
-        }, {
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          params: {
-            key: this.config.apiKey
-          },
-          timeout: 10000,        });
-        return response.status === 200;
+        // Validate the key against the models listing endpoint - costs no
+        // tokens and does not depend on any specific (possibly retired) model
+        return await testGeminiConnection(this.config.apiKey!);
       }      else if (this.config.provider === 'azure-openai') {
         // Test Azure OpenAI with a simple connectivity check
         if (!this.config.baseUrl) {
@@ -225,7 +218,7 @@ When users ask questions, you can:
 
 Always be helpful, accurate, and security-conscious in your responses.`;
 
-    const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${this.config.model || 'gemini-1.5-flash'}:generateContent`, {
+    const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${this.config.model || DEFAULT_GEMINI_MODEL}:generateContent`, {
       contents: geminiMessages,
       systemInstruction: {
         parts: [{ text: systemInstruction }]
@@ -471,10 +464,9 @@ Always be helpful, accurate, and security-conscious in your responses.`;
       });
 
       if (response.data?.data) {
-        const models = response.data.data
-          .filter((model: any) => model.id && model.id.includes('gpt'))
-          .map((model: any) => model.id)
-          .sort();
+        const models = filterOpenAIChatModels(
+          response.data.data.map((model: any) => model.id).filter(Boolean)
+        );
 
         console.log('Successfully retrieved Azure OpenAI models:', models);
         
@@ -491,49 +483,6 @@ Always be helpful, accurate, and security-conscious in your responses.`;
     } catch (error) {
       console.warn('Failed to fetch Azure OpenAI models:', error);
       return this.getFallbackAzureOpenAIModels();
-    }
-  }
-
-  /**
-   * Extract Gemini model names from HTML content
-   */
-  private extractGeminiModelsFromHTML(htmlContent: string): string[] {
-    // Look for patterns like "gemini-1" in the documentation
-    const modelRegex = /gemini-[0-9]+/gi;
-    const matches = htmlContent.match(modelRegex);
-    
-    if (matches && matches.length > 0) {
-      // Remove duplicates
-      const uniqueModels = [...new Set(matches)];
-      return uniqueModels;
-    }
-    
-    return [];
-  }
-
-  /**
-   * Direct HTTP fetch for Gemini models (fallback)
-   */
-  private async getGeminiModelsDirectly(): Promise<string[]> {
-    try {
-      console.log('Fetching Gemini models directly from documentation...');
-      const response = await axios.get('https://docs.gemini.com/en/docs/about-gemini/models/overview', {
-        timeout: 10000,
-        headers: {
-          'User-Agent': 'EntraPulseLite/1.0'
-        }
-      });
-
-      const models = this.extractGeminiModelsFromHTML(response.data);
-      if (models.length > 0) {
-        console.log('Successfully retrieved Gemini models directly:', models);
-        return models;
-      }
-
-      throw new Error('No models found in documentation');
-    } catch (error) {
-      console.warn('Failed to fetch Gemini models from documentation:', error);
-      return this.getFallbackGeminiModels();
     }
   }
 
@@ -559,33 +508,22 @@ Always be helpful, accurate, and security-conscious in your responses.`;
     return [...FALLBACK_ANTHROPIC_MODELS];
   }
   /**
-   * Fallback Gemini models (updated as of June 2025)
+   * Fallback Gemini models (used when the models API is unreachable)
    */
   private getFallbackGeminiModels(): string[] {
-    return [
-      'gemini-1.5-pro',
-      'gemini-1.5-flash',
-      'gemini-1.0-pro',
-      'gemini-pro',
-      'gemini-pro-vision'
-    ];
+    return [...FALLBACK_GEMINI_MODELS];
   }
   /**
-   * Fallback Azure OpenAI models (updated as of June 2025)
-   */  /**
-   * Fallback Azure OpenAI models (updated as of June 2025)
+   * Fallback Azure OpenAI models (used when the deployment API is unreachable)
    */
   private getFallbackAzureOpenAIModels(): string[] {
-    // Return a list of common Azure OpenAI models available as of 2025
+    // Common Azure OpenAI chat deployments
     return [
+      'gpt-5',
       'gpt-4o',
       'gpt-4o-mini',
-      'gpt-4-1106-preview',
       'gpt-4-turbo',
-      'gpt-4',
-      'gpt-35-turbo',
-      'gpt-35-turbo-16k',
-      'text-embedding-ada-002'
+      'gpt-35-turbo'
     ];
   }
 

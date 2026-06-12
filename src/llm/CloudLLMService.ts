@@ -10,8 +10,11 @@ import {
   buildOpenAICompletionParams,
   FALLBACK_ANTHROPIC_MODELS,
   FALLBACK_OPENAI_MODELS,
+  testGeminiConnection,
+  FALLBACK_GEMINI_MODELS,
   DEFAULT_ANTHROPIC_MODEL,
-  DEFAULT_OPENAI_MODEL
+  DEFAULT_OPENAI_MODEL,
+  DEFAULT_GEMINI_MODEL
 } from './CloudModelCatalog';
 
 // Interface for MCP response
@@ -199,19 +202,9 @@ export class CloudLLMService {
         // not depend on any specific (possibly retired) model ID
         isAvailable = await testAnthropicConnection(this.config.apiKey!);
       } else if (this.config.provider === 'gemini') {
-        // Test with a simple generate content call
-        const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent`, {
-          contents: [{ role: 'user', parts: [{ text: 'Hi' }] }],
-          generationConfig: { maxOutputTokens: 1 }
-        }, {
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          params: {
-            key: this.config.apiKey
-          },          timeout: 15000, // Increased timeout
-        });
-        isAvailable = response.status === 200;
+        // Validate the key against the models listing endpoint - costs no
+        // tokens and does not depend on any specific (possibly retired) model
+        isAvailable = await testGeminiConnection(this.config.apiKey!);
       } else if (this.config.provider === 'azure-openai') {
         // Test Azure OpenAI with a simple connectivity check
         if (!this.config.baseUrl) {
@@ -447,7 +440,7 @@ export class CloudLLMService {
     const systemMessage = messages.find(msg => msg.role === 'system');
     const systemInstruction = systemMessage?.content || StandardizedPrompts.getSystemPrompt(this.config.provider);
 
-    const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${this.config.model || 'gemini-1.5-flash'}:generateContent`, {
+    const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${this.config.model || DEFAULT_GEMINI_MODEL}:generateContent`, {
       contents: geminiMessages,
       systemInstruction: {
         parts: [{ text: systemInstruction }]
@@ -697,10 +690,9 @@ export class CloudLLMService {
       });
 
       if (response.data?.data) {
-        const models = response.data.data
-          .filter((model: any) => model.id && model.id.includes('gpt'))
-          .map((model: any) => model.id)
-          .sort();
+        const models = filterOpenAIChatModels(
+          response.data.data.map((model: any) => model.id).filter(Boolean)
+        );
 
         console.log('Successfully retrieved Azure OpenAI models:', models);
         
@@ -738,26 +730,18 @@ export class CloudLLMService {
    * Fallback Gemini models (updated as of June 2025)
    */
   private getFallbackGeminiModels(): string[] {
-    return [      'gemini-1.5-pro',
-      'gemini-1.5-flash',
-      'gemini-1.0-pro',
-      'gemini-pro',
-      'gemini-pro-vision'
-    ];
+    return [...FALLBACK_GEMINI_MODELS];
   }
 
   /**
-   * Fallback Azure OpenAI models (updated as of June 2025)   */  private getFallbackAzureOpenAIModels(): string[] {
-    // Return a list of common Azure OpenAI models available as of 2025
+   * Fallback Azure OpenAI models (used when the deployment API is unreachable)   */  private getFallbackAzureOpenAIModels(): string[] {
+    // Common Azure OpenAI chat deployments
     return [
+      'gpt-5',
       'gpt-4o',
       'gpt-4o-mini',
-      'gpt-4-1106-preview',
       'gpt-4-turbo',
-      'gpt-4',
-      'gpt-35-turbo',
-      'gpt-35-turbo-16k',
-      'text-embedding-ada-002'
+      'gpt-35-turbo'
     ];
   }
 

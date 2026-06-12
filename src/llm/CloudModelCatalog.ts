@@ -55,7 +55,8 @@ export function filterOpenAIChatModels(modelIds: string[]): string[] {
   const chatModels = modelIds.filter(
     id => OPENAI_CHAT_PREFIX_PATTERN.test(id) && !OPENAI_NON_CHAT_PATTERN.test(id)
   );
-  return [...new Set(chatModels)].sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+  // Plain reverse-lexicographic keeps newer families first (gpt-5 > gpt-4 > gpt-35)
+  return [...new Set(chatModels)].sort((a, b) => (a < b ? 1 : a > b ? -1 : 0));
 }
 
 /**
@@ -82,6 +83,18 @@ export function buildOpenAICompletionParams(
   return { max_tokens: maxTokens, temperature };
 }
 
+/**
+ * Cheap Gemini connectivity/key check via the models listing endpoint -
+ * costs no tokens and never depends on a specific (possibly retired) model.
+ */
+export async function testGeminiConnection(apiKey: string): Promise<boolean> {
+  const response = await axios.get('https://generativelanguage.googleapis.com/v1beta/models', {
+    params: { key: apiKey, pageSize: 1 },
+    timeout: 10000
+  });
+  return response.status === 200;
+}
+
 // Fallbacks used only when the provider's models API is unreachable.
 // Keep in sync with currently served models.
 export const FALLBACK_ANTHROPIC_MODELS = [
@@ -102,5 +115,12 @@ export const FALLBACK_OPENAI_MODELS = [
   'gpt-4-turbo'
 ];
 
+export const FALLBACK_GEMINI_MODELS = [
+  'gemini-2.5-pro',
+  'gemini-2.5-flash',
+  'gemini-2.0-flash'
+];
+
 export const DEFAULT_ANTHROPIC_MODEL = 'claude-sonnet-4-6';
 export const DEFAULT_OPENAI_MODEL = 'gpt-4o-mini';
+export const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
