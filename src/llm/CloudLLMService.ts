@@ -3,6 +3,16 @@ import axios, { AxiosError } from 'axios';
 import { LLMConfig, ChatMessage } from '../types';
 import { MCPClient } from '../mcp/clients';
 import { StandardizedPrompts } from '../shared/StandardizedPrompts';
+import {
+  fetchAnthropicModels,
+  testAnthropicConnection,
+  filterOpenAIChatModels,
+  buildOpenAICompletionParams,
+  FALLBACK_ANTHROPIC_MODELS,
+  FALLBACK_OPENAI_MODELS,
+  DEFAULT_ANTHROPIC_MODEL,
+  DEFAULT_OPENAI_MODEL
+} from './CloudModelCatalog';
 
 // Interface for MCP response
 interface MCPContentItem {
@@ -185,20 +195,9 @@ export class CloudLLMService {
         });
         isAvailable = response.status === 200;
       } else if (this.config.provider === 'anthropic') {
-        // Test with a simple messages endpoint call
-        const response = await axios.post('https://api.anthropic.com/v1/messages', {
-          model: 'claude-3-5-haiku-20241022', // Use the latest available model for testing
-          max_tokens: 1,
-          messages: [{ role: 'user', content: 'Hi' }]
-        }, {
-          headers: {
-            'x-api-key': this.config.apiKey,
-            'Content-Type': 'application/json',
-            'anthropic-version': '2023-06-01'
-          },
-          timeout: 15000, // Increased timeout
-        });
-        isAvailable = response.status === 200;
+        // Validate the key against the Models API - costs no tokens and does
+        // not depend on any specific (possibly retired) model ID
+        isAvailable = await testAnthropicConnection(this.config.apiKey!);
       } else if (this.config.provider === 'gemini') {
         // Test with a simple generate content call
         const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent`, {
@@ -314,13 +313,19 @@ export class CloudLLMService {
 
     // Use retry logic for the actual request
     return await this.retryWithBackoff(async () => {
-      console.log(`Making OpenAI request with model: ${this.config.model || 'gpt-4o-mini'}, temperature: ${this.config.temperature || 0.1}, max_tokens: ${this.config.maxTokens || 2048}`);
-      
+      const model = this.config.model || DEFAULT_OPENAI_MODEL;
+      // gpt-5/o-series models reject max_tokens and non-default temperature
+      const completionParams = buildOpenAICompletionParams(
+        model,
+        this.config.maxTokens || 2048,
+        this.config.temperature || 0.1
+      );
+      console.log(`Making OpenAI request with model: ${model}, params:`, completionParams);
+
       const response = await axios.post('https://api.openai.com/v1/chat/completions', {
-        model: this.config.model || 'gpt-4o-mini',
+        model,
         messages: fullMessages,
-        temperature: this.config.temperature || 0.1,
-        max_tokens: this.config.maxTokens || 2048,
+        ...completionParams,
       }, {
         headers: {
           'Authorization': `Bearer ${this.config.apiKey}`,
@@ -379,10 +384,10 @@ export class CloudLLMService {
 
     // Use retry logic for the actual request
     return await this.retryWithBackoff(async () => {
-      console.log(`Making Anthropic request with model: ${this.config.model || 'claude-sonnet-4-20250514'}, temperature: ${this.config.temperature || 0.1}, max_tokens: ${this.config.maxTokens || 2048}`);
-      
+      console.log(`Making Anthropic request with model: ${this.config.model || DEFAULT_ANTHROPIC_MODEL}, temperature: ${this.config.temperature || 0.1}, max_tokens: ${this.config.maxTokens || 2048}`);
+
       const response = await axios.post('https://api.anthropic.com/v1/messages', {
-        model: this.config.model || 'claude-sonnet-4-20250514', // Use latest stable model as default
+        model: this.config.model || DEFAULT_ANTHROPIC_MODEL,
         max_tokens: this.config.maxTokens || 2048,
         temperature: this.config.temperature || 0.1,
         system: systemPrompt,
@@ -505,16 +510,18 @@ export class CloudLLMService {
     console.log(`Using deployment: ${deploymentName}`);
       // Use retry logic for the actual request
     return await this.retryWithBackoff(async () => {
-      const requestTemperature = this.config.temperature || 0.1;
-      const requestMaxTokens = this.config.maxTokens || 2048;
-      
-      console.log(`Making Azure OpenAI request with temperature: ${requestTemperature}, max_tokens: ${requestMaxTokens}`);
-      console.log(`[CloudLLMService] Azure OpenAI config values - temperature: ${this.config.temperature}, maxTokens: ${this.config.maxTokens}`);
-      
+      // gpt-5/o-series deployments reject max_tokens and non-default temperature
+      const completionParams = buildOpenAICompletionParams(
+        this.config.model || deploymentName,
+        this.config.maxTokens || 2048,
+        this.config.temperature || 0.1
+      );
+
+      console.log(`Making Azure OpenAI request with params:`, completionParams);
+
       const response = await axios.post(this.config.baseUrl!, {
         messages: fullMessages,
-        temperature: requestTemperature,
-        max_tokens: requestMaxTokens,
+        ...completionParams,
       }, {
         headers: {
           'api-key': this.config.apiKey,
@@ -572,9 +579,9 @@ export class CloudLLMService {
             'OpenAI-Organization': this.config.organization
           }
         });
-        return response.data.data
-          .filter((model: any) => model.id.includes('gpt'))
-          .map((model: any) => model.id) || [];      } else if (this.config.provider === 'anthropic') {
+        return filterOpenAIChatModels(
+          (response.data.data || []).map((model: any) => model.id)
+        );      } else if (this.config.provider === 'anthropic') {
         return await this.getAnthropicModels();
       } else if (this.config.provider === 'gemini') {
         return await this.getGeminiModels();
@@ -588,51 +595,18 @@ export class CloudLLMService {
     }
   }
   /**
-   * Fetch Anthropic models dynamically from their documentation using Fetch MCP
+   * Fetch Anthropic models from the official Models API
    */
   private async getAnthropicModels(): Promise<string[]> {
-    // First try using MCP Fetch server if available
-    if (this.mcpClient) {
-      try {
-        console.log('Attempting to fetch Anthropic models using MCP Fetch server...');
-        const mcpResponse = await this.mcpClient.callTool('fetch', 'fetch', {
-          url: 'https://docs.anthropic.com/en/docs/about-claude/models/overview'
-        }) as MCPResponse;
-
-        if (mcpResponse?.content && Array.isArray(mcpResponse.content)) {
-          const textContent = mcpResponse.content.find(item => item.type === 'text');
-          if (textContent?.text) {
-            const models = this.extractModelsFromContent(textContent.text);
-            if (models.length > 0) {
-              console.log('Successfully retrieved Anthropic models via MCP:', models);
-              return models;
-            }
-          }
-        }
-      } catch (error) {
-        console.warn('MCP Fetch for Anthropic models failed, falling back to direct HTTP:', error);
-      }
-    }
-
-    // Fallback to direct HTTP if MCP is not available or fails
     try {
-      console.log('Fetching Anthropic models via direct HTTP...');
-      const response = await axios.get('https://docs.anthropic.com/en/docs/about-claude/models/overview', {
-        timeout: 10000,
-        headers: {
-          'User-Agent': 'EntraPulseLite/1.0'
-        }
-      });
-
-      const models = this.extractModelsFromContent(response.data);
+      const models = await fetchAnthropicModels(this.config.apiKey!);
       if (models.length > 0) {
-        console.log('Successfully retrieved Anthropic models via HTTP:', models);
+        console.log('Successfully retrieved Anthropic models via Models API:', models);
         return models;
       }
-
-      throw new Error('No models found in documentation');
+      throw new Error('Models API returned an empty list');
     } catch (error) {
-      console.warn('Failed to fetch Anthropic models from documentation:', error);
+      console.warn('Failed to fetch Anthropic models from Models API:', error);
       return this.getFallbackAnthropicModels();
     }
   }
@@ -747,121 +721,17 @@ export class CloudLLMService {
   }
 
   /**
-   * Extract model names from HTML/text content
-   */private extractModelsFromContent(content: string): string[] {
-    try {
-      const results: string[] = [];
-      
-      // Pattern 1: Modern Claude models with version-name-date format
-      // Examples: claude-3.5-sonnet-20241022, claude-3-opus-20240229
-      const modernVersionNameDateRegex = /claude-\d+(?:\.\d+)?-(?:opus|sonnet|haiku)-\d{8}/gi;
-      const modernVersionNameDateMatches = content.match(modernVersionNameDateRegex) || [];
-      results.push(...modernVersionNameDateMatches);
-      
-      // Pattern 2: Newer Claude models with name-version-date format
-      // Examples: claude-sonnet-4-20250514
-      const modernNameVersionDateRegex = /claude-(?:opus|sonnet|haiku)-\d+(?:\.\d+)?-\d{8}/gi;
-      const modernNameVersionDateMatches = content.match(modernNameVersionDateRegex) || [];
-      results.push(...modernNameVersionDateMatches);
-      
-      // Pattern 3: Legacy Claude models without dates
-      // Examples: claude-instant-v1, claude-2.0, claude-2.1
-      const legacyModelRegex = /claude-(?:instant|2)(?:-v\d+|\.\d+)/gi;
-      const legacyMatches = content.match(legacyModelRegex) || [];
-      results.push(...legacyMatches);
-      
-      // Pattern 4: Look for models in JSON or quoted strings
-      // This can catch models that might be missed by other patterns
-      const jsonRegex = /"(claude-[^"]+)"/gi;
-      let jsonMatch;
-      while ((jsonMatch = jsonRegex.exec(content)) !== null) {
-        if (jsonMatch[1] && jsonMatch[1].startsWith('claude-') && !results.includes(jsonMatch[1])) {
-          results.push(jsonMatch[1]);
-        }
-      }
-      
-      // Pattern 5: Generic claude model pattern for any other formats
-      // This is a more generic pattern that might catch models with unusual formats
-      const genericClaudeRegex = /\b(claude-[a-z0-9.\-]+)\b/gi;
-      const genericMatches = content.match(genericClaudeRegex) || [];
-      // Only add matches that weren't already caught by other patterns
-      for (const match of genericMatches) {
-        if (!results.includes(match) && match.startsWith('claude-')) {
-          results.push(match);
-        }
-      }
-      
-      // Deduplicate results, convert to lowercase for consistency
-      const uniqueResults = [...new Set(results.map(model => model.toLowerCase()))];
-      
-      // Enhanced sorting algorithm to prioritize models correctly
-      return uniqueResults.sort((a: string, b: string) => {
-        // Extract dates if present (8-digit numbers) - could be at the end or elsewhere in the string
-        const dateAMatch = a.match(/(\d{8})/);
-        const dateBMatch = b.match(/(\d{8})/);
-        const dateA = dateAMatch ? dateAMatch[1] : '';
-        const dateB = dateBMatch ? dateBMatch[1] : '';
-        
-        // If both have dates, compare by date (newer first)
-        if (dateA && dateB) {
-          return dateB.localeCompare(dateA);
-        }
-        
-        // If only one has a date, prioritize that one
-        if (dateA) return -1;
-        if (dateB) return 1;
-        
-        // Extract versions - could be in different positions depending on model naming pattern
-        const versionAMatch = a.match(/\d+(?:\.\d+)?/);
-        const versionBMatch = b.match(/\d+(?:\.\d+)?/);
-        const versionA = versionAMatch ? versionAMatch[0] : '0';
-        const versionB = versionBMatch ? versionBMatch[0] : '0';
-        
-        // Compare version numbers as floats (higher versions first)
-        if (parseFloat(versionA) !== parseFloat(versionB)) {
-          return parseFloat(versionB) - parseFloat(versionA);
-        }
-        
-        // If versions are equal, prioritize by model capability (opus > sonnet > haiku)
-        if (a.includes('opus') && !b.includes('opus')) return -1;
-        if (!a.includes('opus') && b.includes('opus')) return 1;
-        if (a.includes('sonnet') && !b.includes('sonnet') && !b.includes('opus')) return -1;
-        if (!a.includes('sonnet') && b.includes('sonnet') && !a.includes('opus')) return 1;
-        
-        // Default to alphabetical sort
-        return a.localeCompare(b);
-      });
-    } catch (error) {
-      console.error('Error extracting models from content:', error);
-      return [];
-    }
-  }
-
-  /**
-   * Fallback OpenAI models (updated as of June 2025)
+   * Fallback OpenAI models (used when the models API is unreachable)
    */
   private getFallbackOpenAIModels(): string[] {
-    return [
-      'gpt-4o',
-      'gpt-4o-mini', 
-      'gpt-4-turbo',
-      'gpt-4',
-      'gpt-3.5-turbo'
-    ];
+    return [...FALLBACK_OPENAI_MODELS];
   }
 
   /**
-   * Fallback Anthropic models (updated as of January 2025)
+   * Fallback Anthropic models (used when the Models API is unreachable)
    */
   private getFallbackAnthropicModels(): string[] {
-    return [
-      'claude-sonnet-4-20250514',       // Latest Claude 4 Sonnet (June 2025)
-      'claude-3-5-sonnet-20241022',     // Latest Claude 3.5 Sonnet
-      'claude-3-5-haiku-20241022',      // Latest Claude 3.5 Haiku
-      'claude-3-opus-20240229',         // Claude 3 Opus
-      'claude-3-sonnet-20240229',       // Claude 3 Sonnet
-      'claude-3-haiku-20240307'         // Claude 3 Haiku
-    ];
+    return [...FALLBACK_ANTHROPIC_MODELS];
   }
 
   /**

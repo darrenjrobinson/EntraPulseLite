@@ -194,9 +194,9 @@ export const EnhancedSettingsDialog: React.FC<EnhancedSettingsDialogProps> = ({
   const getDefaultModel = (provider: 'openai' | 'anthropic' | 'gemini' | 'azure-openai'): string => {
     switch (provider) {
       case 'openai': return 'gpt-4o-mini';
-      case 'anthropic': return 'claude-sonnet-4-20250514';
-      case 'gemini': return 'gemini-1.5-pro';
-      case 'azure-openai': return 'gpt-35-turbo';
+      case 'anthropic': return 'claude-sonnet-4-6';
+      case 'gemini': return 'gemini-2.5-flash';
+      case 'azure-openai': return 'gpt-4o';
       default: return 'gpt-4o-mini';
     }
   };
@@ -217,35 +217,35 @@ export const EnhancedSettingsDialog: React.FC<EnhancedSettingsDialogProps> = ({
     switch (provider) {
       case 'openai':
         return [
+          'gpt-5',
+          'gpt-5-mini',
           'gpt-4o',
-          'gpt-4o-mini', 
-          'gpt-4-turbo',
-          'gpt-4',
-          'gpt-3.5-turbo'
+          'gpt-4o-mini',
+          'gpt-4-turbo'
         ];
       case 'anthropic':
         return [
-          'claude-sonnet-4-20250514',      // Latest Claude 4 Sonnet (June 2025)
-          'claude-3-5-sonnet-20241022',
-          'claude-3-5-haiku-20241022',
-          'claude-3-opus-20240229',
-          'claude-3-sonnet-20240229',
-          'claude-3-haiku-20240307'
+          'claude-opus-4-8',
+          'claude-opus-4-7',
+          'claude-opus-4-6',
+          'claude-sonnet-4-6',
+          'claude-sonnet-4-5',
+          'claude-opus-4-5',
+          'claude-haiku-4-5'
         ];
       case 'gemini':
         return [
+          'gemini-2.5-pro',
+          'gemini-2.5-flash',
           'gemini-1.5-pro',
-          'gemini-1.5-flash',
-          'gemini-1.0-pro',
-          'gemini-pro',
-          'gemini-pro-vision'
+          'gemini-1.5-flash'
         ];
       case 'azure-openai':
         return [
+          'gpt-5',
           'gpt-4o',
           'gpt-4o-mini',
           'gpt-4-turbo',
-          'gpt-4',
           'gpt-35-turbo'
         ];
       default:
@@ -1585,7 +1585,7 @@ const CloudProviderCard: React.FC<CloudProviderCardProps> = ({
     config || {
       provider,
       model: provider === 'openai' ? 'gpt-4o-mini' : 
-             provider === 'anthropic' ? 'claude-sonnet-4-20250514' : 
+             provider === 'anthropic' ? 'claude-sonnet-4-6' :
              provider === 'gemini' ? 'gemini-1.5-flash' :
              provider === 'azure-openai' ? 'gpt-4o' : 'gpt-4o-mini',      apiKey: '',
       temperature: 0.2,
@@ -1606,7 +1606,7 @@ const CloudProviderCard: React.FC<CloudProviderCardProps> = ({
       setLocalConfig({
         provider,
         model: provider === 'openai' ? 'gpt-4o-mini' : 
-               provider === 'anthropic' ? 'claude-sonnet-4-20250514' : 
+               provider === 'anthropic' ? 'claude-sonnet-4-6' :
                provider === 'gemini' ? 'gemini-1.5-flash' :
                provider === 'azure-openai' ? 'gpt-4o' : 'gpt-4o-mini',
         apiKey: '',
@@ -1622,35 +1622,35 @@ const CloudProviderCard: React.FC<CloudProviderCardProps> = ({
     switch (provider) {
       case 'openai':
         return [
+          'gpt-5',
+          'gpt-5-mini',
           'gpt-4o',
-          'gpt-4o-mini', 
-          'gpt-4-turbo',
-          'gpt-4',
-          'gpt-3.5-turbo'
+          'gpt-4o-mini',
+          'gpt-4-turbo'
         ];
       case 'anthropic':
         return [
-          'claude-sonnet-4-20250514',      // Latest Claude 4 Sonnet (June 2025)
-          'claude-3-5-sonnet-20241022',
-          'claude-3-5-haiku-20241022',
-          'claude-3-opus-20240229',
-          'claude-3-sonnet-20240229',
-          'claude-3-haiku-20240307'
+          'claude-opus-4-8',
+          'claude-opus-4-7',
+          'claude-opus-4-6',
+          'claude-sonnet-4-6',
+          'claude-sonnet-4-5',
+          'claude-opus-4-5',
+          'claude-haiku-4-5'
         ];
       case 'gemini':
         return [
+          'gemini-2.5-pro',
+          'gemini-2.5-flash',
           'gemini-1.5-pro',
-          'gemini-1.5-flash',
-          'gemini-1.0-pro',
-          'gemini-pro',
-          'gemini-pro-vision'
+          'gemini-1.5-flash'
         ];
       case 'azure-openai':
         return [
+          'gpt-5',
           'gpt-4o',
           'gpt-4o-mini',
           'gpt-4-turbo',
-          'gpt-4',
           'gpt-35-turbo'
         ];
       default:
@@ -1906,14 +1906,8 @@ const CloudProviderCard: React.FC<CloudProviderCardProps> = ({
               onChange={(e) => {
                 const selectedModel = e.target.value;
                 
-                // Validate the model for the current provider
-                if (!isValidModelForProvider(selectedModel, provider)) {
-                  console.warn(`Selected model "${selectedModel}" is not valid for provider "${provider}"`);
-                  // Note: Model validation warning will be shown through the existing modelFetchError prop
-                } else {
-                  console.log(`Selected model "${selectedModel}" is valid for provider "${provider}"`);
-                }
-                
+                // The dropdown is populated from the provider's live model list,
+                // so anything selectable here is valid
                 setLocalConfig({ ...localConfig, model: selectedModel });
               }}
               disabled={isLoadingModels}
@@ -1924,8 +1918,9 @@ const CloudProviderCard: React.FC<CloudProviderCardProps> = ({
                 </MenuItem>
               ))}
             </Select>
-            {/* Model validation warning */}
-            {localConfig.model && !isValidModelForProvider(localConfig.model, provider) && (
+            {/* Model validation warning - trust the live provider list first; the
+                hardcoded list is only a fallback when no models could be fetched */}
+            {localConfig.model && !models.includes(localConfig.model) && !isValidModelForProvider(localConfig.model, provider) && (
               <Typography variant="caption" color="warning.main" sx={{ mt: 0.5, display: 'block' }}>
                 ⚠️ Warning: "{localConfig.model}" may not be a valid model for {provider}. Please verify this model exists.
               </Typography>

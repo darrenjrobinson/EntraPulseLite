@@ -85,7 +85,7 @@ class EntraPulseLiteApp {
         return 'gpt-4';
       case 'openai':
         return 'gpt-4o-mini';      case 'anthropic':
-        return 'claude-3-haiku-20240307';
+        return 'claude-sonnet-4-6';
       default:        return 'gpt-4o-mini';
     }
   }

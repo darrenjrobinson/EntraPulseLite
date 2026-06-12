@@ -117,7 +117,7 @@ For optimal performance and reliability, we recommend using cloud-based AI provi
 1. Visit [Anthropic Console](https://console.anthropic.com)
 2. Create an account and generate an API key
 3. In EntraPulse Lite Settings → LLM Configuration → Add Claude Sonnet
-4. Enter your API key and select Update then select the `claude-sonnet-4-20250514` model
+4. Enter your API key and select Update then select the `claude-sonnet-4-6` model
 
 #### Option 2: Azure OpenAI GPT-4o (Enterprise)
 1. Access your Azure OpenAI resource in the Azure Portal
@@ -192,7 +192,7 @@ You can toggle between browser modes in Settings → Entra Application Settings 
 
 ### Multi-Provider LLM Support
 **Cloud Providers** (Recommended):
-- Anthropic Claude Sonnet (Claude 3.5 Sonnet)
+- Anthropic Claude (Claude Sonnet 4.6, Claude Opus 4.8)
 - Azure OpenAI (Enterprise-grade GPT-4o, GPT-4, GPT-3.5)
 - OpenAI (GPT-4, GPT-3.5)
 - Google Gemini

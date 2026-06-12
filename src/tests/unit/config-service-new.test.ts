@@ -31,7 +31,7 @@ describe('ConfigService - Context-Aware Configuration', () => {
         application: {
           llm: {
             provider: 'anthropic',
-            model: 'claude-3-5-sonnet-20241022',
+            model: 'claude-sonnet-4-6',
             apiKey: '',
             baseUrl: '',
             temperature: 0.2,
@@ -98,7 +98,7 @@ describe('ConfigService - Context-Aware Configuration', () => {
       const config = configService.getLLMConfig();
         expect(config).toEqual({
         provider: 'anthropic',
-        model: 'claude-3-5-sonnet-20241022',
+        model: 'claude-sonnet-4-6',
         apiKey: '',
         baseUrl: '',
         temperature: 0.2,
@@ -115,7 +115,7 @@ describe('ConfigService - Context-Aware Configuration', () => {
           return {
             llm: {
               provider: 'anthropic',
-              model: 'claude-3-5-sonnet-20241022',
+              model: 'claude-sonnet-4-6',
               apiKey: '',
               baseUrl: '',
               temperature: 0.2,
@@ -162,7 +162,7 @@ describe('ConfigService - Context-Aware Configuration', () => {
             'user_user@example.com': {
               llm: {
                 provider: 'anthropic',
-                model: 'claude-3-5-sonnet-20241022',
+                model: 'claude-sonnet-4-6',
                 apiKey: '',
                 baseUrl: '',
                 temperature: 0.2,

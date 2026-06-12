@@ -46,7 +46,7 @@ export class ConfigService {
       defaults: {        application: {
           llm: {
             provider: 'anthropic',
-            model: 'claude-3-5-sonnet-20241022',
+            model: 'claude-sonnet-4-6',
             apiKey: '',
             baseUrl: '',
             temperature: 0.2,
@@ -109,7 +109,7 @@ export class ConfigService {
         console.log(`[ConfigService] Creating new user config for ${this.currentUserKey}`);
         users[this.currentUserKey] = {          llm: {
             provider: 'anthropic',
-            model: 'claude-3-5-sonnet-20241022',
+            model: 'claude-sonnet-4-6',
             apiKey: '',
             baseUrl: '',
             temperature: 0.2,
@@ -171,7 +171,7 @@ export class ConfigService {
     return {
       llm: {
         provider: 'anthropic' as const,
-        model: 'claude-3-5-sonnet-20241022',
+        model: 'claude-sonnet-4-6',
         apiKey: '', // Always empty for security
         baseUrl: '',
         temperature: 0.2,
@@ -749,7 +749,7 @@ export class ConfigService {
       // Reset application config to defaults
       const defaultAppConfig: UserConfigSchema = {
         llm: {
-          provider: 'anthropic',          model: 'claude-3-5-sonnet-20241022',
+          provider: 'anthropic',          model: 'claude-sonnet-4-6',
           apiKey: '',
           baseUrl: '',
           temperature: 0.2,
