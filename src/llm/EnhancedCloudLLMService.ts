@@ -7,6 +7,7 @@ import {
   filterOpenAIChatModels,
   buildOpenAICompletionParams,
   buildAnthropicCompletionParams,
+  buildOpenAIHeaders,
   FALLBACK_ANTHROPIC_MODELS,
   FALLBACK_OPENAI_MODELS,
   testGeminiConnection,
@@ -55,10 +56,7 @@ export class EnhancedCloudLLMService {
     try {
       if (this.config.provider === 'openai') {
         const response = await axios.get('https://api.openai.com/v1/models', {
-          headers: {
-            'Authorization': `Bearer ${this.config.apiKey}`,
-            'OpenAI-Organization': this.config.organization
-          },
+          headers: buildOpenAIHeaders(this.config.apiKey!, this.config.organization),
           timeout: 5000,
         });
         return response.status === 200;
@@ -150,9 +148,8 @@ Always be helpful, accurate, and security-conscious in your responses.`;
       ...buildOpenAICompletionParams(openaiModel, this.config.maxTokens || 2048, this.config.temperature || 0.2),
     }, {
       headers: {
-        'Authorization': `Bearer ${this.config.apiKey}`,
-        'Content-Type': 'application/json',
-        'OpenAI-Organization': this.config.organization
+        ...buildOpenAIHeaders(this.config.apiKey!, this.config.organization),
+        'Content-Type': 'application/json'
       }
     });
 
@@ -341,10 +338,7 @@ Always be helpful, accurate, and security-conscious in your responses.`;
     try {
       if (this.config.provider === 'openai') {
         const response = await axios.get('https://api.openai.com/v1/models', {
-          headers: {
-            'Authorization': `Bearer ${this.config.apiKey}`,
-            'OpenAI-Organization': this.config.organization
-          }
+          headers: buildOpenAIHeaders(this.config.apiKey!, this.config.organization)
         });
         return filterOpenAIChatModels(
           (response.data.data || []).map((model: any) => model.id)

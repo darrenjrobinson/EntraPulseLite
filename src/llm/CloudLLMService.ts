@@ -9,6 +9,7 @@ import {
   filterOpenAIChatModels,
   buildOpenAICompletionParams,
   buildAnthropicCompletionParams,
+  buildOpenAIHeaders,
   FALLBACK_ANTHROPIC_MODELS,
   FALLBACK_OPENAI_MODELS,
   testGeminiConnection,
@@ -191,10 +192,7 @@ export class CloudLLMService {
 
       if (this.config.provider === 'openai') {
         const response = await axios.get('https://api.openai.com/v1/models', {
-          headers: {
-            'Authorization': `Bearer ${this.config.apiKey}`,
-            'OpenAI-Organization': this.config.organization
-          },
+          headers: buildOpenAIHeaders(this.config.apiKey!, this.config.organization),
           timeout: 10000, // Increased timeout
         });
         isAvailable = response.status === 200;
@@ -322,9 +320,8 @@ export class CloudLLMService {
         ...completionParams,
       }, {
         headers: {
-          'Authorization': `Bearer ${this.config.apiKey}`,
-          'Content-Type': 'application/json',
-          'OpenAI-Organization': this.config.organization
+          ...buildOpenAIHeaders(this.config.apiKey!, this.config.organization),
+          'Content-Type': 'application/json'
         },
         timeout: 30000 // 30 second timeout
       });
@@ -574,10 +571,7 @@ export class CloudLLMService {
     try {
       if (this.config.provider === 'openai') {
         const response = await axios.get('https://api.openai.com/v1/models', {
-          headers: {
-            'Authorization': `Bearer ${this.config.apiKey}`,
-            'OpenAI-Organization': this.config.organization
-          }
+          headers: buildOpenAIHeaders(this.config.apiKey!, this.config.organization)
         });
         return filterOpenAIChatModels(
           (response.data.data || []).map((model: any) => model.id)

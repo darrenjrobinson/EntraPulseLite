@@ -43,6 +43,21 @@ export async function testAnthropicConnection(apiKey: string): Promise<boolean> 
   return response.status === 200;
 }
 
+/**
+ * Build OpenAI auth headers. The OpenAI-Organization header is only sent
+ * when an organization is actually configured - sending it with an empty
+ * value makes OpenAI reject the request.
+ */
+export function buildOpenAIHeaders(apiKey: string, organization?: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Authorization': `Bearer ${apiKey}`
+  };
+  if (organization && organization.trim()) {
+    headers['OpenAI-Organization'] = organization.trim();
+  }
+  return headers;
+}
+
 // Special-purpose OpenAI models that can't serve chat completions
 const OPENAI_NON_CHAT_PATTERN = /(embedding|whisper|tts|audio|realtime|image|dall-e|moderation|transcribe|search-preview|computer-use|davinci|babbage|instruct)/i;
 const OPENAI_CHAT_PREFIX_PATTERN = /^(gpt-|o\d|chatgpt-)/i;
@@ -117,6 +132,22 @@ export function buildAnthropicCompletionParams(
     return { max_tokens: maxTokens };
   }
   return { max_tokens: maxTokens, temperature };
+}
+
+/**
+ * Validate a (possibly cached) model list. Returns the cleaned list; callers
+ * should refetch when the cleaned list differs from the input, since that
+ * means the cache was written by older fetch logic (doc-scraping artifacts,
+ * unfiltered non-chat models).
+ */
+export function sanitizeModelList(provider: string, models: string[]): string[] {
+  // Drop entries with characters no real model ID contains (markdown escapes,
+  // @date variants, etc.)
+  const clean = models.filter(id => typeof id === 'string' && /^[a-z0-9][a-z0-9.\-_:]*$/i.test(id));
+  if (provider === 'openai' || provider === 'azure-openai') {
+    return filterOpenAIChatModels(clean);
+  }
+  return [...new Set(clean)];
 }
 
 // Fallbacks used only when the provider's models API is unreachable.

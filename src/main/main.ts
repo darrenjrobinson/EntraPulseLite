@@ -2069,8 +2069,17 @@ class EntraPulseLiteApp {
             // Handle cloud LLM providers - check cache first
             const cachedModels = this.configService.getCachedModels(config.provider);
             if (cachedModels && cachedModels.length > 0) {
-              console.log(`Using cached models for ${config.provider}:`, cachedModels);
-              return cachedModels;
+              // Only trust the cache if it passes current validation - lists
+              // written by older fetch logic contain doc-scraping artifacts
+              // and unfiltered non-chat models
+              const { sanitizeModelList } = require('../llm/CloudModelCatalog');
+              const sanitized = sanitizeModelList(config.provider, cachedModels);
+              if (sanitized.length === cachedModels.length) {
+                console.log(`Using cached models for ${config.provider}:`, sanitized);
+                return sanitized;
+              }
+              console.log(`Cached models for ${config.provider} contain stale entries - refetching`);
+              this.configService.clearModelCache(config.provider);
             }
 
             console.log(`Fetching fresh models for ${config.provider}...`);
