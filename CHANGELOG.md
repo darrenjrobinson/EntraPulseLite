@@ -62,6 +62,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   any API call; the gate is removed and the backend validates against
   the provider's live model list. "Set as Default" similarly no longer
   rewrites a live-listed model back to the hardcoded default
+- **Chat silently used a different model than selected** - before every
+  chat request the cloud service replaced any model missing from its
+  hardcoded fallback list with the first fallback entry (all providers
+  affected). The configured model is now used as-is; an invalid model
+  surfaces as a clear provider error instead of a silent substitution
 - Anthropic requests in the enhanced cloud service sent the API key as an
   `Authorization: Bearer` header; Anthropic requires `x-api-key`
 - Settings dialog no longer warns "may not be a valid model" for models

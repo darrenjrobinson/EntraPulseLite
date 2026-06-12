@@ -821,11 +821,12 @@ export const EnhancedSettingsDialog: React.FC<EnhancedSettingsDialogProps> = ({
       // Validate and fix model for the new provider
       const currentProvider = cloudProviders.find(p => p.provider === provider);
       if (currentProvider) {
-        // Trust the provider's live model list first - the hardcoded list is
-        // only a fallback and goes stale as providers release new models
+        // Trust the provider's live model list - the hardcoded list goes
+        // stale as providers release new models. If the live list isn't
+        // loaded yet we can't verify, so never silently rewrite the model.
         const liveModels = availableModels[provider] || [];
-        const validModel = liveModels.includes(currentProvider.config.model)
-          ? currentProvider.config.model
+        const validModel = liveModels.length === 0 || liveModels.includes(currentProvider.config.model)
+          ? (currentProvider.config.model || validateAndFixModel(provider, currentProvider.config.model))
           : validateAndFixModel(provider, currentProvider.config.model);
         if (validModel !== currentProvider.config.model) {
           console.log(`Switching model from "${currentProvider.config.model}" to "${validModel}" for provider "${provider}"`);

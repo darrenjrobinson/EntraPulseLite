@@ -795,19 +795,19 @@ export class CloudLLMService {
         return currentModel;
     }
 
-    // Check if current model is valid
-    if (validModels.includes(currentModel)) {
-      console.log(`[CloudLLMService] Model "${currentModel}" is valid for provider "${this.config.provider}"`);
+    // Use the configured model as-is when set. The static lists here are
+    // fallbacks only and go stale as providers release new models - if the
+    // model is genuinely invalid the provider API returns a 404 with a clear
+    // error message, which is better than silently chatting with a
+    // different model than the user selected.
+    if (currentModel && currentModel.trim() !== '') {
       return currentModel;
     }
 
-    // If current model is invalid, use the first fallback model
+    // No model configured - fall back to the provider default
     const fallbackModel = validModels[0];
-    console.warn(`[CloudLLMService] Model "${currentModel}" is not valid for provider "${this.config.provider}". Using fallback model: "${fallbackModel}"`);
-    
-    // Update the config with the fallback model
+    console.warn(`[CloudLLMService] No model configured for provider "${this.config.provider}". Using fallback model: "${fallbackModel}"`);
     this.config.model = fallbackModel;
-    
     return fallbackModel;
   }
 
