@@ -11,6 +11,7 @@ import { UnifiedLLMService } from './UnifiedLLMService';
 import { UnifiedPromptService, PermissionContext } from './UnifiedPromptService';
 import { conversationContextManager, ConversationContextManager } from '../shared/ConversationContextManager';
 import { MCPQueryRouter, RoutingDecision } from '../mcp/routing/MCPQueryRouter';
+import { LOKKA_NPX_ARGS } from '../mcp/constants';
 
 export interface QueryAnalysis {
   needsFetchMcp: boolean;
@@ -78,7 +79,7 @@ export class EnhancedLLMService {
           enabled: true,
           url: 'http://localhost:3003',
           command: 'npx',
-          args: ['-y', '@merill/lokka']
+          args: [...LOKKA_NPX_ARGS]
         },
         {
           name: 'microsoft-docs',

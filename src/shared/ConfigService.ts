@@ -1177,6 +1177,12 @@ export class ConfigService {
         break;
     }
 
+    // Lokka v2 defaults to the beta Graph endpoint (USE_GRAPH_BETA=true).
+    // Allow forcing the stable v1.0 endpoint via configuration.
+    if (lokkaConfig.useGraphBeta === false) {
+      env.USE_GRAPH_BETA = 'false';
+    }
+
     console.log('[ConfigService] Generated Lokka MCP environment:', {
       authMode: lokkaConfig.authMode,
       hasRuntimeToken: !!userToken,

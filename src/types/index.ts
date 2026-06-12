@@ -107,6 +107,7 @@ export interface MCPConfig {
     clientSecret?: string; // Only used for 'client-credentials' mode
     useGraphPowerShell?: boolean; // Controls 'enhanced-graph-access' mode
     accessToken?: string; // Runtime token for 'enhanced-graph-access' and 'delegated' modes
+    useGraphBeta?: boolean; // Lokka v2: false forces stable v1.0 Graph endpoint (Lokka defaults to beta)
   };
   fetch?: {
     enabled: boolean;

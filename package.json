@@ -177,7 +177,7 @@
     "@azure/msal-node": "^3.6.0",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.0",
-    "@merill/lokka": "^0.2.0",
+    "@merill/lokka": "2.0.0",
     "@microsoft/mgt-components": "^4.6.0",
     "@microsoft/mgt-element": "^4.6.0",
     "@microsoft/mgt-react": "^4.6.0",

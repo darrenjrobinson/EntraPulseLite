@@ -2,6 +2,7 @@ import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import * as path from 'path';
 import * as fs from 'fs';
+import { LOKKA_NPX_ARGS } from '../constants';
 
 interface LokkaMCPRequest {
   jsonrpc: string;
@@ -96,7 +97,7 @@ export class ManagedLokkaMCPClient extends EventEmitter {
         });
 
         // Spawn the Lokka process with proper environment
-        this.process = spawn('npx', ['-y', '@merill/lokka'], {
+        this.process = spawn('npx', [...LOKKA_NPX_ARGS], {
           cwd: tempDir,
           env: processEnv,
           stdio: ['pipe', 'pipe', 'pipe'],

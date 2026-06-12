@@ -13,6 +13,7 @@ import { MCPServerManager } from '../mcp/servers/MCPServerManager';
 import { GraphMCPClient } from '../mcp/clients/GraphMCPClient';
 import { MCPErrorHandler, ErrorCode } from '../mcp/utils';
 import { debugMCP, checkMCPServerHealth } from '../mcp/mcp-debug';
+import { LOKKA_NPX_ARGS } from '../mcp/constants';
 import { AutoUpdaterService } from './AutoUpdaterService';
 import { AppConfig, MCPServerConfig, MCPConfig } from '../types';
 import { exposeVersionToRenderer } from '../shared/VersionUtils';
@@ -2920,7 +2921,7 @@ class EntraPulseLiteApp {
         port: 0, // Not used for stdin/stdout MCP servers
         enabled: isLokkaConfigured,
         command: 'npx',
-        args: ['-y', '@merill/lokka'],
+        args: [...LOKKA_NPX_ARGS],
         env: lokkaEnv
       },
       {
