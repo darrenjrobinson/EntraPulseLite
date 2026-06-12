@@ -95,6 +95,30 @@ export async function testGeminiConnection(apiKey: string): Promise<boolean> {
   return response.status === 200;
 }
 
+/**
+ * Claude Opus 4.7+ and the Fable/Mythos-class models removed sampling
+ * parameters - sending `temperature` (or top_p/top_k) returns a 400
+ * "`temperature` is deprecated for this model".
+ */
+export function anthropicRejectsSamplingParams(model: string): boolean {
+  return /^claude-(opus-4-(7|8|9)|opus-[5-9]|fable|mythos)/i.test(model);
+}
+
+/**
+ * Build the token-limit/temperature portion of an Anthropic messages
+ * request appropriate for the target model family.
+ */
+export function buildAnthropicCompletionParams(
+  model: string,
+  maxTokens: number,
+  temperature: number
+): Record<string, number> {
+  if (anthropicRejectsSamplingParams(model)) {
+    return { max_tokens: maxTokens };
+  }
+  return { max_tokens: maxTokens, temperature };
+}
+
 // Fallbacks used only when the provider's models API is unreachable.
 // Keep in sync with currently served models.
 export const FALLBACK_ANTHROPIC_MODELS = [

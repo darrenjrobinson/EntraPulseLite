@@ -8,6 +8,7 @@ import {
   testAnthropicConnection,
   filterOpenAIChatModels,
   buildOpenAICompletionParams,
+  buildAnthropicCompletionParams,
   FALLBACK_ANTHROPIC_MODELS,
   FALLBACK_OPENAI_MODELS,
   testGeminiConnection,
@@ -377,12 +378,18 @@ export class CloudLLMService {
 
     // Use retry logic for the actual request
     return await this.retryWithBackoff(async () => {
-      console.log(`Making Anthropic request with model: ${this.config.model || DEFAULT_ANTHROPIC_MODEL}, temperature: ${this.config.temperature || 0.1}, max_tokens: ${this.config.maxTokens || 2048}`);
+      const anthropicModel = this.config.model || DEFAULT_ANTHROPIC_MODEL;
+      // Claude Opus 4.7+ / Fable-class models reject the temperature parameter
+      const completionParams = buildAnthropicCompletionParams(
+        anthropicModel,
+        this.config.maxTokens || 2048,
+        this.config.temperature || 0.1
+      );
+      console.log(`Making Anthropic request with model: ${anthropicModel}, params:`, completionParams);
 
       const response = await axios.post('https://api.anthropic.com/v1/messages', {
-        model: this.config.model || DEFAULT_ANTHROPIC_MODEL,
-        max_tokens: this.config.maxTokens || 2048,
-        temperature: this.config.temperature || 0.1,
+        model: anthropicModel,
+        ...completionParams,
         system: systemPrompt,
         messages: anthropicMessages
       }, {

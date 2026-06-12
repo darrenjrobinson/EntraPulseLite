@@ -6,6 +6,7 @@ import {
   testAnthropicConnection,
   filterOpenAIChatModels,
   buildOpenAICompletionParams,
+  buildAnthropicCompletionParams,
   FALLBACK_ANTHROPIC_MODELS,
   FALLBACK_OPENAI_MODELS,
   testGeminiConnection,
@@ -178,10 +179,11 @@ When users ask questions, you can:
 3. Provide actionable insights about identity and access management
 4. Help with troubleshooting and security analysis
 
-Always be helpful, accurate, and security-conscious in your responses.`;    const response = await axios.post('https://api.anthropic.com/v1/messages', {
-      model: this.config.model || DEFAULT_ANTHROPIC_MODEL,
-      max_tokens: this.config.maxTokens || 2048,
-      temperature: this.config.temperature || 0.2,
+Always be helpful, accurate, and security-conscious in your responses.`;    const anthropicModel = this.config.model || DEFAULT_ANTHROPIC_MODEL;
+    const response = await axios.post('https://api.anthropic.com/v1/messages', {
+      model: anthropicModel,
+      // Claude Opus 4.7+ / Fable-class models reject the temperature parameter
+      ...buildAnthropicCompletionParams(anthropicModel, this.config.maxTokens || 2048, this.config.temperature || 0.2),
       system: systemPrompt,
       messages: anthropicMessages
     }, {

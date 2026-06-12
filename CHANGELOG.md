@@ -46,6 +46,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   requests sent `max_tokens` and a custom temperature, which these models
   reject; requests now send `max_completion_tokens` and default
   temperature for reasoning-family models
+- **Claude Opus 4.7+/Fable-class models failed with "temperature is
+  deprecated for this model"** - these models removed sampling
+  parameters; the `temperature` field is now omitted for them
 - Anthropic requests in the enhanced cloud service sent the API key as an
   `Authorization: Bearer` header; Anthropic requires `x-api-key`
 - Settings dialog no longer warns "may not be a valid model" for models
