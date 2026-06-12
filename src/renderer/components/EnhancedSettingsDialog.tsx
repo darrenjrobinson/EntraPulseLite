@@ -821,7 +821,12 @@ export const EnhancedSettingsDialog: React.FC<EnhancedSettingsDialogProps> = ({
       // Validate and fix model for the new provider
       const currentProvider = cloudProviders.find(p => p.provider === provider);
       if (currentProvider) {
-        const validModel = validateAndFixModel(provider, currentProvider.config.model);
+        // Trust the provider's live model list first - the hardcoded list is
+        // only a fallback and goes stale as providers release new models
+        const liveModels = availableModels[provider] || [];
+        const validModel = liveModels.includes(currentProvider.config.model)
+          ? currentProvider.config.model
+          : validateAndFixModel(provider, currentProvider.config.model);
         if (validModel !== currentProvider.config.model) {
           console.log(`Switching model from "${currentProvider.config.model}" to "${validModel}" for provider "${provider}"`);
           
@@ -1784,14 +1789,9 @@ const CloudProviderCard: React.FC<CloudProviderCardProps> = ({
     setConnectionStatus('idle');
 
     try {
-      // Check if the current model is valid for the provider first
-      if (!isValidModelForProvider(localConfig.model, provider)) {
-        console.warn(`Test connection: Model "${localConfig.model}" is not valid for provider "${provider}"`);
-        setConnectionStatus('error');
-        // Optional: Could show a more specific error message about invalid model
-        return;
-      }
-
+      // No client-side model gating here: hardcoded model lists go stale,
+      // and the backend test validates the model against the provider's
+      // live model list anyway
       const success = await onTestConnection(localConfig);
       setConnectionStatus(success ? 'success' : 'error');
     } catch (error) {

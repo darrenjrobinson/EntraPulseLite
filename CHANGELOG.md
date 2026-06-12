@@ -56,6 +56,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cached model lists written by the old fetch logic (containing
   doc-scraping artifacts or non-chat models) are detected, discarded,
   and refetched instead of being served to the model dropdown
+- **Test Connection refused to run for models missing from a hardcoded
+  list** - the settings dialog gated the test client-side against a
+  static model list, so newer models (e.g. gpt-5.5-pro) failed without
+  any API call; the gate is removed and the backend validates against
+  the provider's live model list. "Set as Default" similarly no longer
+  rewrites a live-listed model back to the hardcoded default
 - Anthropic requests in the enhanced cloud service sent the API key as an
   `Authorization: Bearer` header; Anthropic requires `x-api-key`
 - Settings dialog no longer warns "may not be a valid model" for models
