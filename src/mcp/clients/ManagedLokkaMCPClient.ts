@@ -3,6 +3,7 @@ import { EventEmitter } from 'events';
 import * as path from 'path';
 import * as fs from 'fs';
 import { LOKKA_NPX_ARGS } from '../constants';
+import { VERSION } from '../../shared/version';
 
 interface LokkaMCPRequest {
   jsonrpc: string;
@@ -163,7 +164,7 @@ export class ManagedLokkaMCPClient extends EventEmitter {
               capabilities: {},
               clientInfo: {
                 name: 'EntraPulseLite',
-                version: '1.1.0'
+                version: VERSION
               }
             });
             

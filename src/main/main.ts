@@ -14,6 +14,7 @@ import { GraphMCPClient } from '../mcp/clients/GraphMCPClient';
 import { MCPErrorHandler, ErrorCode } from '../mcp/utils';
 import { debugMCP, checkMCPServerHealth } from '../mcp/mcp-debug';
 import { LOKKA_NPX_ARGS } from '../mcp/constants';
+import { VERSION } from '../shared/version';
 import { AutoUpdaterService } from './AutoUpdaterService';
 import { AppConfig, MCPServerConfig, MCPConfig } from '../types';
 import { exposeVersionToRenderer } from '../shared/VersionUtils';
@@ -26,7 +27,7 @@ function getAppVersion(): string {
     return packageJson.version;
   } catch (error) {
     console.error('Failed to read version from package.json:', error);
-    return '1.1.0'; // Fallback version
+    return VERSION; // Fallback version
   }
 }
 
@@ -1963,7 +1964,7 @@ class EntraPulseLiteApp {
         return this.autoUpdaterService.getCurrentVersion();
       } catch (error) {
         console.error('Get current version failed:', error);
-        return '1.1.0';
+        return VERSION;
       }
     });
 

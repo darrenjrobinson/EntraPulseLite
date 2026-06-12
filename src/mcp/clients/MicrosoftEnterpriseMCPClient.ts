@@ -15,6 +15,7 @@
 
 import { MCPServerConfig } from '../types';
 import { MCPAuthService } from '../auth/MCPAuthService';
+import { VERSION } from '../../shared/version';
 
 export interface MCPClientConfig {
   baseUrl?: string; // Defaults to Microsoft's endpoint
@@ -255,7 +256,7 @@ export class MicrosoftEnterpriseMCPClient {
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
         'Accept': 'application/json, text/event-stream',
-        'User-Agent': 'EntraPulseLite/1.1.0'
+        'User-Agent': `EntraPulseLite/${VERSION}`
       };
 
       // Add session ID if we have one
@@ -443,7 +444,7 @@ export class MicrosoftEnterpriseMCPClient {
             },
             clientInfo: {
               name: 'EntraPulseLite',
-              version: '1.1.0'
+              version: VERSION
             }
           }
         };

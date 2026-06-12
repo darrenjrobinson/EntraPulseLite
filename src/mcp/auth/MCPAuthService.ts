@@ -4,6 +4,7 @@
 import { AuthService } from '../../auth/AuthService';
 import { AuthenticationProvider } from '@microsoft/microsoft-graph-client';
 import { AuthToken } from '../../types';
+import { VERSION } from '../../shared/version';
 
 export class MCPAuthService {
   private authService: AuthService;
@@ -77,7 +78,7 @@ export class MCPAuthService {
           return {
             'Authorization': `Bearer ${mcpToken.accessToken}`,
             'Content-Type': 'application/json',
-            'User-Agent': 'EntraPulseLite/1.1.0'
+            'User-Agent': `EntraPulseLite/${VERSION}`
           };
         default:
           console.warn(`Unknown server type: ${serverType}, returning default headers`);

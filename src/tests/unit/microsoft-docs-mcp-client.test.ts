@@ -2,6 +2,7 @@
 import { MicrosoftDocsMCPClient } from '../../mcp/clients/MicrosoftDocsMCPClient';
 import { MCPAuthService } from '../../mcp/auth/MCPAuthService';
 import { MCPServerConfig } from '../../mcp/types';
+import { VERSION } from '../../shared/version';
 
 // Mock fetch globally for unit tests
 global.fetch = jest.fn();
@@ -87,7 +88,7 @@ describe('MicrosoftDocsMCPClient Unit Tests', () => {
           headers: expect.objectContaining({
             'Content-Type': 'application/json',
             'Accept': 'application/json, text/event-stream',
-            'User-Agent': 'MCP-Client/1.1.0'
+            'User-Agent': `MCP-Client/${VERSION}`
           }),
           body: expect.stringContaining('"method":"tools/list"')
         })

@@ -2,6 +2,7 @@
 import { autoUpdater } from 'electron-updater';
 import { BrowserWindow, dialog } from 'electron';
 import { ConfigService } from '../shared/ConfigService';
+import { VERSION } from '../shared/version';
 
 export class AutoUpdaterService {
   private mainWindow: BrowserWindow | null = null;
@@ -268,7 +269,7 @@ export class AutoUpdaterService {
 
   // Get current version
   getCurrentVersion(): string {
-    return autoUpdater.currentVersion?.version || '1.1.0';
+    return autoUpdater.currentVersion?.version || VERSION;
   }
 
   // Check if update is pending
