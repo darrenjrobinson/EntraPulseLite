@@ -16,7 +16,7 @@ A free community desktop application that provides natural language querying of 
 - **Real-time LLM Status Monitoring**: Dynamic tracking of LLM availability with automatic UI updates
 - **Automatic Updates**: Seamless updates delivered through GitHub Releases with code signing and user control
 - **Built-in MCP Servers** (Recommended: Enable Both for Best Coverage): 
-  - **Lokka MCP** using the official @merill/lokka package - Fast, privacy-first Microsoft Graph API access for common queries
+  - **Lokka MCP** using the official @merill/lokka package (v2.0.0) - Fast, privacy-first Microsoft Graph and Azure Resource Manager API access for common queries
   - **Microsoft Enterprise MCP** (Cloud) - Enterprise features: Audit Logs, PIM, Conditional Access, Device Compliance
   - Microsoft Docs MCP using the official MicrosoftDocs/MCP package for Microsoft Learn documentation and official Microsoft documentation
   - Fetch MCP for general web searches and documentation retrieval
@@ -215,6 +215,8 @@ Lokka MCP is ideal for common Microsoft Graph queries:
 - **Applications** - App registrations, service principals, permissions
 - **Directory Objects** - Organizational units, domains, directory roles
 - **Mail & Calendar** - Messages, events, contacts (with appropriate permissions)
+- **Azure Resources** (Lokka v2) - Query Azure Resource Manager APIs such as subscriptions and resource configurations
+- **Graph API version control** (Lokka v2) - Defaults to the beta Graph endpoint; set `useGraphBeta: false` in the Lokka configuration to force stable v1.0
 
 #### Microsoft Enterprise MCP Server (Complex Enterprise Queries)
 
