@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.2.0] - Unreleased
 
 ### Added
+- **Tenant Profiles** - named profiles for Managed Services teams that
+  manage many customer tenants. Each profile bundles an app registration
+  (Client ID, Tenant ID, Enhanced Graph Access, System Browser) plus
+  per-tenant MCP settings (Microsoft Enterprise MCP on/off, Lokka Graph
+  beta endpoint)
+  - Profile picker in Settings -> Entra Application Settings with
+    add/rename/delete and a "Switch to this profile" action
+  - Switching the active profile signs out of the current tenant, clears
+    cached tokens, reinitializes MCP/LLM services for the new tenant, and
+    immediately prompts sign-in
+  - The active profile name is shown as a chip in the chat header
+  - Existing single-tenant configurations are automatically migrated to a
+    "Default" profile on first use
 - **Lokka MCP v2.0.0 support** - upgraded from the 0.2/0.3 series and pinned
   the version (previously `@latest`, which silently picked up new major
   releases untested)

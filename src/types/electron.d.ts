@@ -53,6 +53,11 @@ interface ConfigAPI {
   getEntraConfig(): Promise<any>;
   saveEntraConfig(config: any): Promise<void>;
   clearEntraConfig(): Promise<void>;
+  getTenantProfiles(): Promise<{ profiles: any[]; activeProfileId: string | null }>;
+  getActiveTenantProfile(): Promise<any | null>;
+  saveTenantProfile(profile: any): Promise<{ success: boolean; profile?: any; requiresReauth?: boolean; error?: string }>;
+  deleteTenantProfile(id: string): Promise<{ success: boolean; error?: string }>;
+  setActiveTenantProfile(id: string): Promise<{ success: boolean; profile?: any; error?: string }>;
 }
 
 interface UpdaterAPI {

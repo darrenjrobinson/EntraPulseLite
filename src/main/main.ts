@@ -974,11 +974,9 @@ class EntraPulseLiteApp {
           
           // Get current user information for proper context setting
           const currentUser = await this.authService.getCurrentUser();
-          
-          // Get Entra config and set authentication context (always interactive/delegated mode)
-          const storedEntraConfig = this.configService.getEntraConfig();
+
           const authContext = 'interactive'; // Always use delegated permissions
-          
+
           // Set authentication context with user information for interactive mode
           if (currentUser) {
             console.log('🔐 Setting interactive authentication context with user info');
@@ -990,7 +988,21 @@ class EntraPulseLiteApp {
             console.log('🔐 Setting authentication context:', authContext);
             this.configService.setAuthenticationContext(authContext);
           }
-          
+
+          // Tenant profiles: hydrate the (possibly brand-new) user context with
+          // the active profile's settings so config lookups resolve for this
+          // account after a tenant switch. Idempotent; ensureTenantProfiles-
+          // Initialized also migrates existing single-tenant installs.
+          const activeProfile = this.configService.getActiveTenantProfile()
+            ?? this.configService.ensureTenantProfilesInitialized();
+          if (activeProfile) {
+            this.configService.applyTenantProfileToCurrentContext(activeProfile);
+            console.log(`🔐 Applied active tenant profile "${activeProfile.name}" to user context`);
+          }
+
+          // Get Entra config (after profile hydration)
+          const storedEntraConfig = this.configService.getEntraConfig();
+
           // Get the full LLM configuration now that we're authenticated
           const fullLLMConfig = this.configService.getLLMConfig();
           console.log('🔧 Reloading LLM service with full configuration including cloud providers');
@@ -1843,9 +1855,26 @@ class EntraPulseLiteApp {
         
         // Save the Entra configuration
         this.configService.saveEntraConfig(entraConfig);
-        
+
         // Set authentication verified for UI updates
         this.configService.setAuthenticationVerified(true);
+
+        // Keep tenant profiles coherent with direct form saves: update the
+        // active profile's entra settings, or create the initial "Default"
+        // profile when none exist yet
+        try {
+          const activeProfile = this.configService.getActiveTenantProfile();
+          if (activeProfile) {
+            this.configService.saveTenantProfile({
+              ...activeProfile,
+              entraConfig: { ...entraConfig }
+            });
+          } else {
+            this.configService.ensureTenantProfilesInitialized();
+          }
+        } catch (profileError) {
+          console.warn('[Main] Failed to sync tenant profile with Entra config save:', profileError);
+        }
         
         console.log('[Main] Enhanced Graph Access setting saved - useGraphPowerShell:', entraConfig.useGraphPowerShell);
         
@@ -1867,15 +1896,135 @@ class EntraPulseLiteApp {
     ipcMain.handle('config:clearEntraConfig', async () => {
       try {
         this.configService.clearEntraConfig();
-        
+
         // Reinitialize services after clearing Entra configuration
         console.log('[Main] Entra config cleared, reinitializing services...');
         await this.reinitializeServices();
-        
+
         return true;
       } catch (error) {
         console.error('Clear Entra config failed:', error);
         throw error;
+      }
+    });
+
+    // ===== Tenant Profile handlers =====
+
+    ipcMain.handle('config:getTenantProfiles', async () => {
+      try {
+        this.configService.setServiceLevelAccess(true);
+        // Lazy migration: wrap an existing single-tenant config in a "Default" profile
+        this.configService.ensureTenantProfilesInitialized();
+        return {
+          profiles: this.configService.getTenantProfiles(),
+          activeProfileId: this.configService.getActiveTenantProfileId() || null
+        };
+      } catch (error) {
+        console.error('Get tenant profiles failed:', error);
+        return { profiles: [], activeProfileId: null };
+      }
+    });
+
+    ipcMain.handle('config:getActiveTenantProfile', async () => {
+      try {
+        return this.configService.getActiveTenantProfile();
+      } catch (error) {
+        console.error('Get active tenant profile failed:', error);
+        return null;
+      }
+    });
+
+    ipcMain.handle('config:saveTenantProfile', async (event, profile) => {
+      try {
+        this.configService.setServiceLevelAccess(true);
+        const previous = profile.id ? this.configService.getTenantProfile(profile.id) : null;
+        const saved = this.configService.saveTenantProfile(profile);
+
+        const isActive = saved.id === this.configService.getActiveTenantProfileId();
+        // Name-only changes to the active profile don't require reauth/reinit
+        const functionalChange = !previous ||
+          JSON.stringify({ e: previous.entraConfig, m: previous.mcp }) !==
+          JSON.stringify({ e: saved.entraConfig, m: saved.mcp });
+
+        let requiresReauth = false;
+        if (isActive && functionalChange) {
+          console.log(`[Main] Active tenant profile "${saved.name}" changed functionally - applying and reinitializing...`);
+          this.configService.applyTenantProfileToCurrentContext(saved);
+          requiresReauth = previous
+            ? previous.entraConfig.clientId !== saved.entraConfig.clientId ||
+              previous.entraConfig.tenantId !== saved.entraConfig.tenantId ||
+              previous.entraConfig.useGraphPowerShell !== saved.entraConfig.useGraphPowerShell
+            : true;
+          event.sender.send('auth:configurationAvailable');
+          await this.reinitializeServices();
+        }
+
+        if (isActive) {
+          this.mainWindow?.webContents.send('profiles:activeChanged', saved);
+        }
+
+        return { success: true, profile: saved, requiresReauth };
+      } catch (error) {
+        console.error('Save tenant profile failed:', error);
+        return { success: false, error: (error as Error).message };
+      }
+    });
+
+    ipcMain.handle('config:deleteTenantProfile', async (event, id) => {
+      try {
+        this.configService.setServiceLevelAccess(true);
+        this.configService.deleteTenantProfile(id);
+        return { success: true };
+      } catch (error) {
+        console.error('Delete tenant profile failed:', error);
+        return { success: false, error: (error as Error).message };
+      }
+    });
+
+    ipcMain.handle('config:setActiveTenantProfile', async (event, id) => {
+      try {
+        this.configService.setServiceLevelAccess(true);
+        const profile = this.configService.getTenantProfile(id);
+        if (!profile) {
+          return { success: false, error: `Tenant profile ${id} not found` };
+        }
+
+        console.log(`[Main] Switching active tenant profile to "${profile.name}"...`);
+
+        // 1. Point at the new profile and materialize its settings into the
+        //    current context (the post-login hydration refreshes the new
+        //    account's context after sign-in)
+        this.configService.setActiveTenantProfileId(id);
+        this.configService.applyTenantProfileToCurrentContext(profile);
+
+        // 2. Sign out of the old tenant and clear cached tokens
+        try {
+          await this.authService.logout();
+        } catch (logoutError) {
+          console.warn('[Main] Logout during profile switch failed (continuing):', logoutError);
+        }
+        try {
+          await this.authService.clearTokenCache();
+        } catch (cacheError) {
+          console.warn('[Main] Token cache clear during profile switch failed (continuing):', cacheError);
+        }
+        this.configService.setAuthenticationVerified(false);
+        this.configurationAvailabilityNotified = false;
+
+        // 3. Reinitialize auth + MCP + LLM services for the new tenant
+        console.log('[Main] Reinitializing services for new tenant profile...');
+        await this.reinitializeServices();
+
+        // 4. Notify the renderer - it triggers the sign-in prompt so the
+        //    existing auth-state machinery owns UI state
+        this.mainWindow?.webContents.send('auth:configurationAvailable');
+        this.mainWindow?.webContents.send('profiles:activeChanged', profile);
+
+        console.log(`[Main] Tenant profile switch to "${profile.name}" complete - awaiting sign-in`);
+        return { success: true, profile };
+      } catch (error) {
+        console.error('Set active tenant profile failed:', error);
+        return { success: false, error: (error as Error).message };
       }
     });
 

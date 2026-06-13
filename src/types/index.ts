@@ -74,6 +74,25 @@ export interface EntraConfig {
   useSystemBrowser?: boolean; // Toggle for system browser authentication instead of embedded browser
 }
 
+// Per-tenant MCP settings captured by a tenant profile
+export interface TenantProfileMCPSettings {
+  microsoftEnterpriseEnabled: boolean; // maps to mcpConfig.microsoftEnterprise.enabled
+  lokkaUseGraphBeta: boolean;          // maps to mcpConfig.lokka.useGraphBeta
+}
+
+// A named tenant profile bundling the Entra app registration settings and
+// per-tenant MCP toggles. Profiles belong to the application installation
+// (stored at the root of the encrypted store), not to a signed-in user -
+// switching tenants changes the signed-in user.
+export interface TenantProfile {
+  id: string;                 // crypto.randomUUID()
+  name: string;               // display name, unique (case-insensitive)
+  entraConfig: EntraConfig;
+  mcp: TenantProfileMCPSettings;
+  createdAt: string;          // ISO timestamp
+  updatedAt: string;          // ISO timestamp
+}
+
 export interface LLMConfig {
   provider: 'ollama' | 'lmstudio' | 'openai' | 'anthropic' | 'gemini' | 'azure-openai';
   baseUrl?: string; // Not required for cloud providers

@@ -39,7 +39,11 @@ import ComputerIcon from '@mui/icons-material/Computer';
 import UpdateIcon from '@mui/icons-material/Update';
 import SecurityIcon from '@mui/icons-material/Security';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import { LLMConfig, CloudLLMProviderConfig, EntraConfig, MCPConfig } from '../../types';
+import AddIcon from '@mui/icons-material/Add';
+import EditIcon from '@mui/icons-material/Edit';
+import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
+import BusinessIcon from '@mui/icons-material/Business';
+import { LLMConfig, CloudLLMProviderConfig, EntraConfig, MCPConfig, TenantProfile } from '../../types';
 
 interface EnhancedSettingsDialogProps {
   open: boolean;
@@ -180,6 +184,11 @@ export const EnhancedSettingsDialog: React.FC<EnhancedSettingsDialogProps> = ({
     loading: boolean;
     error?: string;
   }>({ loading: false });
+
+  // Tenant profile state
+  const [tenantProfiles, setTenantProfiles] = useState<TenantProfile[]>([]);
+  const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
+  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
 
   // MCP Configuration state
   const [mcpConfig, setMcpConfig] = useState<MCPConfig>({
@@ -431,6 +440,7 @@ export const EnhancedSettingsDialog: React.FC<EnhancedSettingsDialogProps> = ({
     if (open) {
       loadCloudProviders();
       loadEntraConfig();
+      loadTenantProfiles();
       loadMcpConfig();
       loadGraphPermissions();
       loadTenantInfo();
@@ -588,6 +598,24 @@ export const EnhancedSettingsDialog: React.FC<EnhancedSettingsDialogProps> = ({
     }
   };
 
+  const loadTenantProfiles = async () => {
+    try {
+      const electronAPI = window.electronAPI as any;
+      const result = await electronAPI.config.getTenantProfiles();
+      const profiles: TenantProfile[] = result?.profiles || [];
+      setTenantProfiles(profiles);
+      setActiveProfileId(result?.activeProfileId || null);
+      setSelectedProfileId(prev =>
+        prev && profiles.some(p => p.id === prev)
+          ? prev
+          : (result?.activeProfileId || profiles[0]?.id || null)
+      );
+      console.log(`📋 [TenantProfiles] Loaded ${profiles.length} profiles, active: ${result?.activeProfileId || 'none'}`);
+    } catch (error) {
+      console.error('❌ Failed to load tenant profiles:', error);
+    }
+  };
+
   const loadMcpConfig = async () => {
     try {
       setIsLoadingMcpConfig(true);
@@ -730,15 +758,47 @@ export const EnhancedSettingsDialog: React.FC<EnhancedSettingsDialogProps> = ({
     try {
       setIsLoadingEntraConfig(true);
       const electronAPI = window.electronAPI as any;
-      
+
       console.log('🔄 Saving Entra config:', {
         clientId: newEntraConfig.clientId ? '[REDACTED]' : 'none',
         tenantId: newEntraConfig.tenantId ? '[REDACTED]' : 'none'
       });
 
-      await electronAPI.config.saveEntraConfig(newEntraConfig);
-      setEntraConfig(newEntraConfig);
-      
+      const selectedProfile = tenantProfiles.find(p => p.id === selectedProfileId) || null;
+      if (selectedProfile) {
+        // Profile-aware save: the form edits the selected profile's settings
+        const result = await electronAPI.config.saveTenantProfile({
+          ...selectedProfile,
+          entraConfig: newEntraConfig
+        });
+        if (!result?.success) {
+          throw new Error(result?.error || 'Failed to save tenant profile');
+        }
+        await loadTenantProfiles();
+
+        if (selectedProfile.id === activeProfileId) {
+          setEntraConfig(newEntraConfig);
+          if (result.requiresReauth) {
+            const proceed = window.confirm(
+              'These changes affect authentication and require signing in again. Sign in now?'
+            );
+            if (proceed) {
+              onClose();
+              try {
+                await electronAPI.auth.login();
+              } catch (loginError) {
+                console.error('Sign-in after profile change failed or was cancelled:', loginError);
+              }
+            }
+          }
+        }
+      } else {
+        // No profiles yet - legacy save; the main process auto-creates a "Default" profile
+        await electronAPI.config.saveEntraConfig(newEntraConfig);
+        setEntraConfig(newEntraConfig);
+        await loadTenantProfiles();
+      }
+
       console.log('✅ Entra config saved successfully');
     } catch (error) {
       console.error('❌ Failed to save Entra config:', error);
@@ -746,6 +806,89 @@ export const EnhancedSettingsDialog: React.FC<EnhancedSettingsDialogProps> = ({
     } finally {
       setIsLoadingEntraConfig(false);
     }
+  };
+
+  const handleAddProfile = async (name: string, copyCurrent: boolean) => {
+    const electronAPI = window.electronAPI as any;
+    const selectedProfile = tenantProfiles.find(p => p.id === selectedProfileId) || null;
+    const sourceEntra = selectedProfile?.entraConfig || entraConfig;
+    const now = new Date().toISOString();
+    const result = await electronAPI.config.saveTenantProfile({
+      id: '',
+      name,
+      entraConfig: copyCurrent && sourceEntra ? { ...sourceEntra } : { clientId: '', tenantId: '' },
+      mcp: copyCurrent && selectedProfile
+        ? { ...selectedProfile.mcp }
+        : { microsoftEnterpriseEnabled: false, lokkaUseGraphBeta: true },
+      createdAt: now,
+      updatedAt: now
+    });
+    if (!result?.success) {
+      alert(result?.error || 'Failed to add profile');
+      return;
+    }
+    await loadTenantProfiles();
+    setSelectedProfileId(result.profile.id);
+  };
+
+  const handleRenameProfile = async (name: string) => {
+    const selectedProfile = tenantProfiles.find(p => p.id === selectedProfileId);
+    if (!selectedProfile) return;
+    const electronAPI = window.electronAPI as any;
+    const result = await electronAPI.config.saveTenantProfile({ ...selectedProfile, name });
+    if (!result?.success) {
+      alert(result?.error || 'Failed to rename profile');
+      return;
+    }
+    await loadTenantProfiles();
+  };
+
+  const handleDeleteProfile = async () => {
+    if (!selectedProfileId) return;
+    const electronAPI = window.electronAPI as any;
+    const result = await electronAPI.config.deleteTenantProfile(selectedProfileId);
+    if (!result?.success) {
+      alert(result?.error || 'Failed to delete profile');
+      return;
+    }
+    setSelectedProfileId(null);
+    await loadTenantProfiles();
+  };
+
+  const handleSwitchProfile = async () => {
+    if (!selectedProfileId) return;
+    const electronAPI = window.electronAPI as any;
+    const result = await electronAPI.config.setActiveTenantProfile(selectedProfileId);
+    if (!result?.success) {
+      alert(result?.error || 'Failed to switch profile');
+      return;
+    }
+    setActiveProfileId(selectedProfileId);
+    // Close settings and immediately prompt sign-in to the new tenant
+    onClose();
+    try {
+      await electronAPI.auth.login();
+    } catch (loginError) {
+      console.error('Sign-in after profile switch failed or was cancelled:', loginError);
+    }
+  };
+
+  const handleProfileMcpToggle = async (
+    key: 'microsoftEnterpriseEnabled' | 'lokkaUseGraphBeta',
+    value: boolean
+  ) => {
+    const selectedProfile = tenantProfiles.find(p => p.id === selectedProfileId);
+    if (!selectedProfile) return;
+    const electronAPI = window.electronAPI as any;
+    const result = await electronAPI.config.saveTenantProfile({
+      ...selectedProfile,
+      mcp: { ...selectedProfile.mcp, [key]: value }
+    });
+    if (!result?.success) {
+      alert(result?.error || 'Failed to update profile');
+      return;
+    }
+    await loadTenantProfiles();
   };
 
   const handleClearEntraConfig = async () => {
@@ -1075,14 +1218,30 @@ export const EnhancedSettingsDialog: React.FC<EnhancedSettingsDialogProps> = ({
                   Configure your Microsoft Entra application registration details. These settings are secure and stored locally encrypted.
                 </Typography>
               </Box>
-              
+
+              <TenantProfileSelector
+                profiles={tenantProfiles}
+                activeProfileId={activeProfileId}
+                selectedProfileId={selectedProfileId}
+                onSelect={setSelectedProfileId}
+                onAdd={handleAddProfile}
+                onRename={handleRenameProfile}
+                onDelete={handleDeleteProfile}
+                onSwitch={handleSwitchProfile}
+                onMcpToggle={handleProfileMcpToggle}
+              />
+
               {isLoadingEntraConfig ? (
                 <Box display="flex" justifyContent="center" py={2}>
                   <CircularProgress size={24} />
                 </Box>
               ) : (
                 <EntraConfigForm
-                  config={entraConfig}
+                  key={selectedProfileId || 'no-profile'}
+                  config={
+                    tenantProfiles.find(p => p.id === selectedProfileId)?.entraConfig
+                    ?? entraConfig
+                  }
                   onSave={handleSaveEntraConfig}
                   onClear={handleClearEntraConfig}
                   graphPermissions={graphPermissions}
@@ -1984,6 +2143,249 @@ const CloudProviderCard: React.FC<CloudProviderCardProps> = ({
           sx={{ mt: 1 }}
         />
       )}
+    </Paper>
+  );
+};
+
+// Tenant Profile selector - manages named per-tenant app registration profiles
+interface TenantProfileSelectorProps {
+  profiles: TenantProfile[];
+  activeProfileId: string | null;
+  selectedProfileId: string | null;
+  onSelect: (id: string) => void;
+  onAdd: (name: string, copyCurrent: boolean) => Promise<void>;
+  onRename: (name: string) => Promise<void>;
+  onDelete: () => Promise<void>;
+  onSwitch: () => Promise<void>;
+  onMcpToggle: (key: 'microsoftEnterpriseEnabled' | 'lokkaUseGraphBeta', value: boolean) => Promise<void>;
+}
+
+const TenantProfileSelector: React.FC<TenantProfileSelectorProps> = ({
+  profiles,
+  activeProfileId,
+  selectedProfileId,
+  onSelect,
+  onAdd,
+  onRename,
+  onDelete,
+  onSwitch,
+  onMcpToggle
+}) => {
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [renameDialogOpen, setRenameDialogOpen] = useState(false);
+  const [switchConfirmOpen, setSwitchConfirmOpen] = useState(false);
+  const [nameInput, setNameInput] = useState('');
+  const [copyCurrent, setCopyCurrent] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  const selectedProfile = profiles.find(p => p.id === selectedProfileId) || null;
+  const isActiveSelected = !!selectedProfileId && selectedProfileId === activeProfileId;
+
+  const run = async (fn: () => Promise<void>) => {
+    setBusy(true);
+    try {
+      await fn();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+      <Box display="flex" alignItems="center" gap={1} mb={1}>
+        <BusinessIcon fontSize="small" color="primary" />
+        <Typography variant="subtitle1" fontWeight="medium">Tenant Profiles</Typography>
+      </Box>
+      <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
+        Each profile stores the app registration and per-tenant settings for one tenant.
+        Switching the active profile signs you out and prompts sign-in to the new tenant.
+      </Typography>
+
+      {profiles.length === 0 ? (
+        <Alert severity="info" sx={{ mb: 1 }}>
+          No profiles yet - configure the settings below and Save to create a "Default" profile, or add a named profile.
+        </Alert>
+      ) : (
+        <FormControl fullWidth size="small" sx={{ mb: 2 }}>
+          <InputLabel>Profile</InputLabel>
+          <Select
+            value={selectedProfileId || ''}
+            label="Profile"
+            onChange={(e) => onSelect(e.target.value as string)}
+          >
+            {profiles.map(p => (
+              <MenuItem key={p.id} value={p.id}>
+                <Box display="flex" alignItems="center" gap={1}>
+                  {p.name}
+                  {p.id === activeProfileId && <Chip label="Active" color="success" size="small" />}
+                </Box>
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+      )}
+
+      <Box display="flex" gap={1} flexWrap="wrap" sx={{ mb: selectedProfile ? 2 : 0 }}>
+        <Button
+          size="small"
+          variant="outlined"
+          startIcon={<AddIcon />}
+          disabled={busy}
+          onClick={() => { setNameInput(''); setCopyCurrent(true); setAddDialogOpen(true); }}
+        >
+          Add Profile
+        </Button>
+        {selectedProfile && (
+          <>
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<EditIcon />}
+              disabled={busy}
+              onClick={() => { setNameInput(selectedProfile.name); setRenameDialogOpen(true); }}
+            >
+              Rename
+            </Button>
+            <Tooltip title={isActiveSelected ? 'Switch to another profile first' : ''}>
+              <span>
+                <Button
+                  size="small"
+                  color="error"
+                  variant="outlined"
+                  startIcon={<DeleteIcon />}
+                  disabled={busy || isActiveSelected}
+                  onClick={() => {
+                    if (window.confirm(`Delete profile "${selectedProfile.name}"?`)) {
+                      run(onDelete);
+                    }
+                  }}
+                >
+                  Delete
+                </Button>
+              </span>
+            </Tooltip>
+            {!isActiveSelected && (
+              <Button
+                size="small"
+                variant="contained"
+                startIcon={<SwapHorizIcon />}
+                disabled={busy}
+                onClick={() => setSwitchConfirmOpen(true)}
+              >
+                Switch to this profile
+              </Button>
+            )}
+          </>
+        )}
+      </Box>
+
+      {selectedProfile && (
+        <Box>
+          <Typography variant="subtitle2" sx={{ mb: 0.5 }}>Per-tenant MCP settings</Typography>
+          <Box display="flex" flexDirection="column">
+            <FormControlLabel
+              control={
+                <Switch
+                  size="small"
+                  checked={selectedProfile.mcp.microsoftEnterpriseEnabled}
+                  disabled={busy}
+                  onChange={(e) => run(() => onMcpToggle('microsoftEnterpriseEnabled', e.target.checked))}
+                />
+              }
+              label="Microsoft Enterprise MCP (requires tenant licensing and admin consent)"
+            />
+            <FormControlLabel
+              control={
+                <Switch
+                  size="small"
+                  checked={selectedProfile.mcp.lokkaUseGraphBeta}
+                  disabled={busy}
+                  onChange={(e) => run(() => onMcpToggle('lokkaUseGraphBeta', e.target.checked))}
+                />
+              }
+              label="Lokka: use Graph beta endpoint"
+            />
+          </Box>
+        </Box>
+      )}
+
+      {/* Add profile dialog */}
+      <Dialog open={addDialogOpen} onClose={() => setAddDialogOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Add Tenant Profile</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            fullWidth
+            size="small"
+            label="Profile name"
+            value={nameInput}
+            onChange={(e) => setNameInput(e.target.value)}
+            sx={{ mt: 1, mb: 1 }}
+          />
+          <FormControlLabel
+            control={<Switch size="small" checked={copyCurrent} onChange={(e) => setCopyCurrent(e.target.checked)} />}
+            label="Copy current settings into the new profile"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAddDialogOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            disabled={!nameInput.trim() || busy}
+            onClick={() => run(async () => { await onAdd(nameInput.trim(), copyCurrent); setAddDialogOpen(false); })}
+          >
+            Add
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Rename profile dialog */}
+      <Dialog open={renameDialogOpen} onClose={() => setRenameDialogOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Rename Profile</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            fullWidth
+            size="small"
+            label="Profile name"
+            value={nameInput}
+            onChange={(e) => setNameInput(e.target.value)}
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRenameDialogOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            disabled={!nameInput.trim() || busy}
+            onClick={() => run(async () => { await onRename(nameInput.trim()); setRenameDialogOpen(false); })}
+          >
+            Rename
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Switch confirmation dialog */}
+      <Dialog open={switchConfirmOpen} onClose={() => setSwitchConfirmOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Switch Tenant Profile?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">
+            Switching to "{selectedProfile?.name}" will sign you out of the current tenant,
+            clear cached tokens, and prompt you to sign in to the new tenant.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSwitchConfirmOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="warning"
+            disabled={busy}
+            onClick={() => run(async () => { setSwitchConfirmOpen(false); await onSwitch(); })}
+          >
+            Switch & Sign In
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Paper>
   );
 };

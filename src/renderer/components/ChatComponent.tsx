@@ -73,6 +73,7 @@ export const ChatComponent: React.FC<ChatComponentProps> = () => {
   const [currentModel, setCurrentModel] = useState<string | null>(null);
   const [copyStatus, setCopyStatus] = useState<{ [key: string]: boolean }>({});
   const [sessionId, setSessionId] = useState<string>(() => `session-${Date.now()}`);
+  const [activeTenantProfile, setActiveTenantProfile] = useState<{ name: string; entraConfig?: { tenantId?: string } } | null>(null);
   
   // Cloud LLM status tracking
   const [cloudLLMStatus, setCloudLLMStatus] = useState<{
@@ -123,6 +124,40 @@ export const ChatComponent: React.FC<ChatComponentProps> = () => {
       // Cleanup function to remove the listener
       return () => {
         eventManager.removeEventListener('config:defaultCloudProviderChanged', 'ChatComponent', electronAPI);
+      };
+    }
+  }, []);
+
+  // Track the active tenant profile for the header indicator
+  useEffect(() => {
+    const electronAPI = window.electronAPI as any;
+
+    const loadActiveProfile = async () => {
+      try {
+        const profile = await electronAPI?.config?.getActiveTenantProfile?.();
+        setActiveTenantProfile(profile || null);
+      } catch (error) {
+        console.warn('Failed to load active tenant profile:', error);
+      }
+    };
+
+    loadActiveProfile();
+
+    const handleProfileChanged = (event: any, profile: any) => {
+      console.log('🏢 [ChatComponent] Active tenant profile changed:', profile?.name);
+      setActiveTenantProfile(profile || null);
+    };
+    const handleConfigAvailable = () => {
+      // Re-fetch on configuration changes (covers renames/saves of the active profile)
+      loadActiveProfile();
+    };
+
+    if (electronAPI?.on) {
+      eventManager.addEventListener('profiles:activeChanged', handleProfileChanged, 'ChatComponent', electronAPI);
+      eventManager.addEventListener('auth:configurationAvailable', handleConfigAvailable, 'ChatComponent', electronAPI);
+      return () => {
+        eventManager.removeEventListener('profiles:activeChanged', 'ChatComponent', electronAPI);
+        eventManager.removeEventListener('auth:configurationAvailable', 'ChatComponent', electronAPI);
       };
     }
   }, []);
@@ -847,6 +882,16 @@ What would you like to explore?`,
               <Typography variant="caption" color="textSecondary" sx={{ ml: 1 }}>
                 ({user.tenantDisplayName})
               </Typography>
+            )}
+            {activeTenantProfile && (
+              <Tooltip title={`Tenant profile${activeTenantProfile.entraConfig?.tenantId ? ` - Tenant ID: ${activeTenantProfile.entraConfig.tenantId}` : ''}`}>
+                <Chip
+                  label={activeTenantProfile.name}
+                  color="secondary"
+                  size="small"
+                  variant="outlined"
+                />
+              </Tooltip>
             )}
           </Box>          {/* Local LLM Status with real-time updates */}
           <Tooltip title={llmLastChecked ? `Last checked: ${llmLastChecked.toLocaleTimeString()}` : "Checking status..."}>

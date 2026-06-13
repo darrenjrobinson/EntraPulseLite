@@ -8,6 +8,7 @@ A free community desktop application that provides natural language querying of 
 
 - **Enhanced Graph Access**: Uses Microsoft Graph PowerShell client ID for comprehensive delegated permissions
 - **Custom Application Support**: Use your own Entra App Registration with delegated permissions for tailored access  
+- **Tenant Profiles**: Save app registration settings per customer tenant and switch between tenants with one click - built for Managed Services teams
 - **Dual Authentication Modes**: Switch between Enhanced Graph Access and Custom Application modes at runtime
 - **Flexible Browser Authentication**: Choose between embedded browser or system browser for authentication compliance
 - **Work or School Microsoft Account**: Secure login with MSAL integration
@@ -169,6 +170,15 @@ EntraPulse Lite uses delegated permissions exclusively for secure, user-context 
 - Full control over which Microsoft Graph APIs are accessible
 
 You can switch between modes in Settings → Entra Application Settings.
+
+### Tenant Profiles (Managed Services)
+
+Managed Services teams that work across many customer tenants can save the Entra settings for each tenant as a named **Tenant Profile**:
+
+- **Settings → Entra Application Settings → Tenant Profiles** - add, rename, or remove profiles; each captures the Client ID, Tenant ID, authentication options, and per-tenant MCP settings (Microsoft Enterprise MCP, Lokka Graph beta endpoint)
+- **Switching profiles** signs you out of the current tenant, clears cached tokens, reconfigures the MCP servers for the new tenant, and prompts you to sign in
+- The **active profile name** is shown in the chat header so you always know which tenant you're working in
+- Existing configurations are migrated automatically into a "Default" profile
 
 ### Browser Authentication Modes
 EntraPulse Lite supports flexible authentication flows to accommodate different organizational security requirements:
