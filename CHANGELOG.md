@@ -21,6 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The active profile name is shown as a chip in the chat header
   - Existing single-tenant configurations are automatically migrated to a
     "Default" profile on first use
+  - Conversation history is cleared and a fresh session started on profile
+    switch / sign-out, so the LLM can never reference the previous tenant's
+    user (e.g. resolving "my account" to the prior tenant's UPN)
 - **Lokka MCP v2.0.0 support** - upgraded from the 0.2/0.3 series and pinned
   the version (previously `@latest`, which silently picked up new major
   releases untested)

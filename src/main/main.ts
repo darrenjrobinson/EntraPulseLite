@@ -15,6 +15,7 @@ import { MCPErrorHandler, ErrorCode } from '../mcp/utils';
 import { debugMCP, checkMCPServerHealth } from '../mcp/mcp-debug';
 import { LOKKA_NPX_ARGS } from '../mcp/constants';
 import { VERSION } from '../shared/version';
+import { conversationContextManager } from '../shared/ConversationContextManager';
 import { AutoUpdaterService } from './AutoUpdaterService';
 import { AppConfig, MCPServerConfig, MCPConfig } from '../types';
 import { exposeVersionToRenderer } from '../shared/VersionUtils';
@@ -1261,7 +1262,11 @@ class EntraPulseLiteApp {
     });    ipcMain.handle('auth:logout', async () => {
       try {
         await this.authService.logout();
-        
+
+        // Clear conversation history so a later sign-in (possibly a different
+        // user) never inherits the previous user's context
+        conversationContextManager.clearAll();
+
         // Reset authentication verification flag on logout
         this.configService.setAuthenticationVerified(false);
         
@@ -2018,6 +2023,10 @@ class EntraPulseLiteApp {
         }
         this.configService.setAuthenticationVerified(false);
         this.configurationAvailabilityNotified = false;
+
+        // Clear conversation history so the new tenant's session can't inherit
+        // the previous user's identity/context (e.g. a stale UPN in prior turns)
+        conversationContextManager.clearAll();
 
         // Tell the renderer to reset its auth state (signed-in user, token,
         // photo, conversation) - the old tenant's identity is no longer valid

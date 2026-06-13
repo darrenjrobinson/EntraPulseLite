@@ -154,6 +154,25 @@ export class ConversationContextManager {
   }
 
   /**
+   * Clear a single session's context
+   */
+  clearSession(sessionId: string): void {
+    if (this.contexts.delete(sessionId)) {
+      console.log(`🧹 Cleared conversation context for session: ${sessionId}`);
+    }
+  }
+
+  /**
+   * Clear all conversation contexts. Used on sign-out / tenant profile switch
+   * so a new tenant's session can never see the previous user's history.
+   */
+  clearAll(): void {
+    const count = this.contexts.size;
+    this.contexts.clear();
+    console.log(`🧹 Cleared all conversation contexts (${count} session(s))`);
+  }
+
+  /**
    * Clear old conversations (cleanup)
    */
   cleanup(maxAgeHours: number = 24): void {

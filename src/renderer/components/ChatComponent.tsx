@@ -196,7 +196,10 @@ export const ChatComponent: React.FC<ChatComponentProps> = () => {
       setCurrentPermissions(['User.Read']);
       setPermissionSource('default');
       setAuthMode('interactive');
-      
+      // Start a fresh session so the next sign-in (possibly a different
+      // tenant/user) cannot reuse the previous conversation context
+      setSessionId(`session-${Date.now()}`);
+
       console.log('✅ [ChatComponent] Authentication state reset after logout');
     };
 
