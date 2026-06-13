@@ -15,7 +15,8 @@ on:
 
 jobs:
   windows-signed-release:
-    runs-on: windows-latest
+    # Pinned to windows-2022 (VS2022); windows-latest (VS2026) breaks node-gyp native builds
+    runs-on: windows-2022
     
     steps:
       - name: Check out Git repository

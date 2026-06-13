@@ -88,7 +88,11 @@ jobs:
   # Windows - Code signed with DigiCert certificate
   windows-signed:
     needs: create-release
-    runs-on: windows-latest
+    # Pinned to windows-2022 (VS2022): windows-latest now resolves to the
+    # win25-vs2026 image (Visual Studio 18 / VS2026), which the bundled
+    # node-gyp 10.2.0 cannot detect ("unknown version undefined"), breaking
+    # the native build of lodepng during npm ci. VS2022 is detected fine.
+    runs-on: windows-2022
     steps:
       - name: Check out Git repository
         uses: actions/checkout@v4

@@ -11,7 +11,8 @@ jobs:
     
     strategy:
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
+        # windows-2022 (VS2022): windows-latest (VS2026) breaks node-gyp native builds
+        os: [windows-2022, macos-latest, ubuntu-latest]
 
     steps:
       - name: Check out Git repository
@@ -36,7 +37,7 @@ jobs:
         run: npm run build
 
       - name: Build and Release (Windows)
-        if: matrix.os == 'windows-latest'
+        if: matrix.os == 'windows-2022'
         run: npx electron-builder --win --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
