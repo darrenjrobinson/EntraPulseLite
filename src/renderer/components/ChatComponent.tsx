@@ -162,6 +162,27 @@ export const ChatComponent: React.FC<ChatComponentProps> = () => {
     }
   }, []);
 
+  // Refresh the signed-in user when auth state changes outside this component
+  // (e.g. sign-in triggered from Settings after a tenant profile switch)
+  useEffect(() => {
+    const handleAuthStatusChanged = async (event: any, data: { authenticated?: boolean }) => {
+      console.log('🔐 [ChatComponent] Auth status changed event received:', data);
+      try {
+        await checkAuthenticationStatus();
+      } catch (error) {
+        console.error('Failed to refresh auth status after change event:', error);
+      }
+    };
+
+    const electronAPIForAuthStatus = window.electronAPI as any;
+    if (electronAPIForAuthStatus?.on) {
+      eventManager.addEventListener('auth-status-changed', handleAuthStatusChanged, 'ChatComponent', electronAPIForAuthStatus);
+      return () => {
+        eventManager.removeEventListener('auth-status-changed', 'ChatComponent', electronAPIForAuthStatus);
+      };
+    }
+  }, []);
+
   // Listen for authentication logout events (e.g., from Enhanced Graph Access changes)
   useEffect(() => {
     const handleAuthLogout = (event: any, data: { reason?: string }) => {

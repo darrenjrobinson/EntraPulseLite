@@ -1238,6 +1238,14 @@ class EntraPulseLiteApp {
         
         console.log('🔐 [AUTH-HANDLER] Authentication flow completed successfully');
         this.mainWindow?.webContents.send('main-debug', '🔐 [AUTH-HANDLER] Authentication flow completed successfully');
+
+        // Notify the renderer that auth state changed so components refresh
+        // the signed-in user (covers logins initiated outside ChatComponent,
+        // e.g. after a tenant profile switch from Settings)
+        if (result) {
+          this.mainWindow?.webContents.send('auth-status-changed', { authenticated: true });
+        }
+
         return result;
       } catch (error) {
         console.error('🔐 [AUTH-HANDLER] Login failed:', error);
@@ -2010,6 +2018,10 @@ class EntraPulseLiteApp {
         }
         this.configService.setAuthenticationVerified(false);
         this.configurationAvailabilityNotified = false;
+
+        // Tell the renderer to reset its auth state (signed-in user, token,
+        // photo, conversation) - the old tenant's identity is no longer valid
+        this.mainWindow?.webContents.send('auth:logout', { reason: 'tenant-profile-switch' });
 
         // 3. Reinitialize auth + MCP + LLM services for the new tenant
         console.log('[Main] Reinitializing services for new tenant profile...');
