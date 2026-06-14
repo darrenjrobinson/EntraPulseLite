@@ -44,6 +44,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import BusinessIcon from '@mui/icons-material/Business';
 import { LLMConfig, CloudLLMProviderConfig, EntraConfig, MCPConfig, TenantProfile } from '../../types';
+import { eventManager } from '../../shared/EventManager';
 
 interface EnhancedSettingsDialogProps {
   open: boolean;
@@ -278,10 +279,12 @@ export const EnhancedSettingsDialog: React.FC<EnhancedSettingsDialogProps> = ({
     return defaultModel;
   };
 
-  const loadGraphPermissions = async () => {
-    // Throttle calls to prevent rapid successive calls
+  const loadGraphPermissions = async (force = false) => {
+    // Throttle calls to prevent rapid successive calls. A profile switch /
+    // sign-in passes force=true so the panel never shows the previous
+    // tenant's permissions just because the last load was <30s ago.
     const now = Date.now();
-    if (now - lastGraphPermissionsLoadRef.current < 30000) { // 30 second minimum between calls (increased from 10)
+    if (!force && now - lastGraphPermissionsLoadRef.current < 30000) { // 30 second minimum between calls
       console.log('🔄 Skipping graph permissions load - too soon since last attempt');
       return;
     }
@@ -442,10 +445,38 @@ export const EnhancedSettingsDialog: React.FC<EnhancedSettingsDialogProps> = ({
       loadEntraConfig();
       loadTenantProfiles();
       loadMcpConfig();
-      loadGraphPermissions();
+      loadGraphPermissions(true); // force - bypass throttle so a recent load for another tenant can't mask this one
       loadTenantInfo();
     }
   }, [open]); // Only reload when dialog opens, not on every config change
+
+  // Refresh permissions + tenant info when the active tenant profile changes
+  // or auth state changes (e.g. after a profile switch + sign-in), so the
+  // panel reflects the new tenant rather than the previous one's cached data
+  useEffect(() => {
+    const electronAPI = window.electronAPI as any;
+    if (!electronAPI?.on) return;
+
+    const handleTenantContextChanged = () => {
+      console.log('🔄 Tenant/auth context changed - force-refreshing permissions and tenant info');
+      // Clear stale permissions immediately so the previous tenant's list
+      // cannot linger on screen while the new data loads
+      setGraphPermissions({ granted: [], available: [], loading: true });
+      setTenantInfo({ loading: true });
+      // Small delay to let the new token settle after sign-in
+      setTimeout(() => {
+        loadGraphPermissions(true);
+        loadTenantInfo();
+      }, 1000);
+    };
+
+    eventManager.addEventListener('profiles:activeChanged', handleTenantContextChanged, 'EnhancedSettingsDialog', electronAPI);
+    eventManager.addEventListener('auth-status-changed', handleTenantContextChanged, 'EnhancedSettingsDialog', electronAPI);
+    return () => {
+      eventManager.removeEventListener('profiles:activeChanged', 'EnhancedSettingsDialog', electronAPI);
+      eventManager.removeEventListener('auth-status-changed', 'EnhancedSettingsDialog', electronAPI);
+    };
+  }, []);
 
   // Listen for authentication state changes and reload tenant info
   useEffect(() => {
