@@ -45,6 +45,7 @@ import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import BusinessIcon from '@mui/icons-material/Business';
 import { LLMConfig, CloudLLMProviderConfig, EntraConfig, MCPConfig, TenantProfile } from '../../types';
 import { eventManager } from '../../shared/EventManager';
+import { mcpToggleRequiresReauth, MCP_ENDPOINT_REAUTH_NOTE } from '../../shared/mcpSettings';
 
 interface EnhancedSettingsDialogProps {
   open: boolean;
@@ -850,7 +851,7 @@ export const EnhancedSettingsDialog: React.FC<EnhancedSettingsDialogProps> = ({
       entraConfig: copyCurrent && sourceEntra ? { ...sourceEntra } : { clientId: '', tenantId: '' },
       mcp: copyCurrent && selectedProfile
         ? { ...selectedProfile.mcp }
-        : { microsoftEnterpriseEnabled: false, lokkaUseGraphBeta: true },
+        : { microsoftEnterpriseEnabled: false, lokkaUseGraphBeta: false },
       createdAt: now,
       updatedAt: now
     });
@@ -920,6 +921,17 @@ export const EnhancedSettingsDialog: React.FC<EnhancedSettingsDialogProps> = ({
       return;
     }
     await loadTenantProfiles();
+
+    // Persisting an MCP toggle reinitializes the MCP services (Lokka restarts with new
+    // env). The restart doesn't re-apply the live token, so re-authenticate to restore a
+    // working connection on the new endpoint. (Same pattern as switching profiles.)
+    if (mcpToggleRequiresReauth(key)) {
+      try {
+        await electronAPI.auth.login();
+      } catch (loginError) {
+        console.error('Re-authentication after MCP toggle failed or was cancelled:', loginError);
+      }
+    }
   };
 
   const handleClearEntraConfig = async () => {
@@ -1262,6 +1274,158 @@ export const EnhancedSettingsDialog: React.FC<EnhancedSettingsDialogProps> = ({
                 onMcpToggle={handleProfileMcpToggle}
               />
 
+              {/* MCP Server Configuration — between Tenant Profiles and Authentication Mode; collapsed by default */}
+              <Accordion sx={{ mb: 2 }}>
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                  <Typography variant="subtitle1" fontWeight="medium">MCP Server Configuration</Typography>
+                </AccordionSummary>
+                <AccordionDetails>
+                  <Grid container spacing={3}>
+                    <Grid item xs={12}>
+                      <Typography variant="body2" color="textSecondary" gutterBottom>
+                        Configure Model Context Protocol (MCP) servers for enhanced Microsoft Graph querying capabilities.
+                      </Typography>
+                    </Grid>
+
+                    {/* Interactive MCP apps (inline UI rendering) */}
+                    <Grid item xs={12}>
+                      <Box sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 1 }}>
+                        <FormControlLabel
+                          control={
+                            <Switch
+                              checked={mcpConfig.interactiveApps !== false}
+                              onChange={(e) => handleMcpConfigChange({
+                                ...mcpConfig,
+                                interactiveApps: e.target.checked
+                              })}
+                            />
+                          }
+                          label="Enable interactive MCP apps"
+                        />
+                        <Typography variant="caption" color="textSecondary" sx={{ display: 'block', ml: 4 }}>
+                          Render Lokka's Graph Explorer and other MCP apps inline in chat. Off = text/JSON results only.
+                        </Typography>
+                      </Box>
+                    </Grid>
+
+                    {/* Lokka MCP (Local) */}
+                    <Grid item xs={12}>
+                      <Box sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 1 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                          <ComputerIcon sx={{ mr: 1, color: 'primary.main' }} />
+                          <Typography variant="subtitle1" fontWeight="medium">
+                            Lokka MCP (Local)
+                          </Typography>
+                        </Box>
+                        <FormControlLabel
+                          control={
+                            <Switch
+                              checked={mcpConfig.lokka?.enabled ?? true}
+                              onChange={(e) => handleMcpConfigChange({
+                                ...mcpConfig,
+                                lokka: { ...mcpConfig.lokka, enabled: e.target.checked, authMode: 'enhanced-graph-access', useGraphPowerShell: true }
+                              })}
+                            />
+                          }
+                          label="Enable Lokka MCP Server"
+                        />
+                        <Typography variant="caption" color="textSecondary" sx={{ display: 'block', ml: 4 }}>
+                          Privacy-first local MCP server for general Microsoft Graph queries
+                        </Typography>
+                      </Box>
+                    </Grid>
+
+                    {/* Microsoft Enterprise MCP (Cloud) */}
+                    <Grid item xs={12}>
+                      <Box sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 1 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                          <CloudIcon sx={{ mr: 1, color: 'secondary.main' }} />
+                          <Typography variant="subtitle1" fontWeight="medium">
+                            Microsoft Enterprise MCP (Cloud)
+                          </Typography>
+                          <Chip
+                            label="v1.1.0"
+                            size="small"
+                            color="primary"
+                            sx={{ ml: 1 }}
+                          />
+                        </Box>
+                        <FormControlLabel
+                          control={
+                            <Switch
+                              checked={mcpConfig.microsoftEnterprise?.enabled ?? false}
+                              onChange={(e) => handleMcpConfigChange({
+                                ...mcpConfig,
+                                microsoftEnterprise: { ...mcpConfig.microsoftEnterprise, enabled: e.target.checked, grantedScopes: mcpConfig.microsoftEnterprise?.grantedScopes || [] }
+                              })}
+                            />
+                          }
+                          label="Enable Microsoft Enterprise MCP"
+                        />
+                        <Typography variant="caption" color="textSecondary" sx={{ display: 'block', ml: 4, mb: 2 }}>
+                          Cloud-based MCP server for enterprise features: Audit Logs, PIM, Conditional Access, Device Compliance
+                        </Typography>
+
+                        {mcpConfig.microsoftEnterprise?.enabled && (
+                          <Box sx={{ ml: 4, mt: 2 }}>
+                            <Alert severity="info" sx={{ mb: 2 }}>
+                              <Typography variant="body2">
+                                <strong>Admin Consent Required:</strong> Microsoft Enterprise MCP requires MCP-specific permissions. See Readme for prerequisites and step-by-step process.
+                                Run the PowerShell command to grant consent:
+                              </Typography>
+                              <Box sx={{ mt: 1, p: 1, bgcolor: 'background.default', borderRadius: 1, fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                                Grant-EntraBetaMCPServerPermission -ApplicationName 'EntraPulseLite'
+                              </Box>
+                            </Alert>
+
+                            {mcpConfig.microsoftEnterprise?.grantedScopes && mcpConfig.microsoftEnterprise.grantedScopes.length > 0 && (
+                              <Box>
+                                <Typography variant="caption" display="block" gutterBottom>
+                                  <strong>Granted MCP Scopes:</strong>
+                                </Typography>
+                                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                                  {mcpConfig.microsoftEnterprise.grantedScopes.map((scope) => (
+                                    <Chip
+                                      key={scope}
+                                      label={scope}
+                                      size="small"
+                                      color="success"
+                                      variant="outlined"
+                                    />
+                                  ))}
+                                </Box>
+                              </Box>
+                            )}
+                          </Box>
+                        )}
+                      </Box>
+                    </Grid>
+
+                    {/* Auto-Routing Info */}
+                    {mcpConfig.lokka?.enabled && mcpConfig.microsoftEnterprise?.enabled && (
+                      <Grid item xs={12}>
+                        <Alert severity="success">
+                          <Typography variant="body2">
+                            <strong>Auto-Routing Enabled:</strong> Queries will be intelligently routed between servers.
+                            General queries → Lokka (privacy), Enterprise queries → Microsoft MCP (audit logs, PIM, etc.)
+                          </Typography>
+                        </Alert>
+                      </Grid>
+                    )}
+
+                    {!mcpConfig.lokka?.enabled && !mcpConfig.microsoftEnterprise?.enabled && (
+                      <Grid item xs={12}>
+                        <Alert severity="warning">
+                          <Typography variant="body2">
+                            <strong>No MCP Servers Enabled:</strong> At least one MCP server must be enabled for Graph queries.
+                          </Typography>
+                        </Alert>
+                      </Grid>
+                    )}
+                  </Grid>
+                </AccordionDetails>
+              </Accordion>
+
               {isLoadingEntraConfig ? (
                 <Box display="flex" justifyContent="center" py={2}>
                   <CircularProgress size={24} />
@@ -1521,137 +1685,6 @@ export const EnhancedSettingsDialog: React.FC<EnhancedSettingsDialogProps> = ({
                     </Grid>
                   );
                 })}
-              </Grid>
-            </AccordionDetails>
-          </Accordion>
-
-          {/* MCP Server Configuration */}
-          <Accordion defaultExpanded>
-            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-              <Typography variant="h6">MCP Server Configuration</Typography>
-            </AccordionSummary>
-            <AccordionDetails>
-              <Grid container spacing={3}>
-                <Grid item xs={12}>
-                  <Typography variant="body2" color="textSecondary" gutterBottom>
-                    Configure Model Context Protocol (MCP) servers for enhanced Microsoft Graph querying capabilities.
-                  </Typography>
-                </Grid>
-
-                {/* Lokka MCP (Local) */}
-                <Grid item xs={12}>
-                  <Box sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                      <ComputerIcon sx={{ mr: 1, color: 'primary.main' }} />
-                      <Typography variant="subtitle1" fontWeight="medium">
-                        Lokka MCP (Local)
-                      </Typography>
-                    </Box>
-                    <FormControlLabel
-                      control={
-                        <Switch
-                          checked={mcpConfig.lokka?.enabled ?? true}
-                          onChange={(e) => handleMcpConfigChange({
-                            ...mcpConfig,
-                            lokka: { ...mcpConfig.lokka, enabled: e.target.checked, authMode: 'enhanced-graph-access', useGraphPowerShell: true }
-                          })}
-                        />
-                      }
-                      label="Enable Lokka MCP Server"
-                    />
-                    <Typography variant="caption" color="textSecondary" sx={{ display: 'block', ml: 4 }}>
-                      Privacy-first local MCP server for general Microsoft Graph queries
-                    </Typography>
-                  </Box>
-                </Grid>
-
-                {/* Microsoft Enterprise MCP (Cloud) */}
-                <Grid item xs={12}>
-                  <Box sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                      <CloudIcon sx={{ mr: 1, color: 'secondary.main' }} />
-                      <Typography variant="subtitle1" fontWeight="medium">
-                        Microsoft Enterprise MCP (Cloud)
-                      </Typography>
-                      <Chip
-                        label="v1.1.0"
-                        size="small"
-                        color="primary"
-                        sx={{ ml: 1 }}
-                      />
-                    </Box>
-                    <FormControlLabel
-                      control={
-                        <Switch
-                          checked={mcpConfig.microsoftEnterprise?.enabled ?? false}
-                          onChange={(e) => handleMcpConfigChange({
-                            ...mcpConfig,
-                            microsoftEnterprise: { ...mcpConfig.microsoftEnterprise, enabled: e.target.checked, grantedScopes: mcpConfig.microsoftEnterprise?.grantedScopes || [] }
-                          })}
-                        />
-                      }
-                      label="Enable Microsoft Enterprise MCP"
-                    />
-                    <Typography variant="caption" color="textSecondary" sx={{ display: 'block', ml: 4, mb: 2 }}>
-                      Cloud-based MCP server for enterprise features: Audit Logs, PIM, Conditional Access, Device Compliance
-                    </Typography>
-
-                    {mcpConfig.microsoftEnterprise?.enabled && (
-                      <Box sx={{ ml: 4, mt: 2 }}>
-                        <Alert severity="info" sx={{ mb: 2 }}>
-                          <Typography variant="body2">
-                            <strong>Admin Consent Required:</strong> Microsoft Enterprise MCP requires MCP-specific permissions. See Readme for prerequisites and step-by-step process.
-                            Run the PowerShell command to grant consent:
-                          </Typography>
-                          <Box sx={{ mt: 1, p: 1, bgcolor: 'background.default', borderRadius: 1, fontFamily: 'monospace', fontSize: '0.85rem' }}>
-                            Grant-EntraBetaMCPServerPermission -ApplicationName 'EntraPulseLite'
-                          </Box>
-                        </Alert>
-
-                        {mcpConfig.microsoftEnterprise?.grantedScopes && mcpConfig.microsoftEnterprise.grantedScopes.length > 0 && (
-                          <Box>
-                            <Typography variant="caption" display="block" gutterBottom>
-                              <strong>Granted MCP Scopes:</strong>
-                            </Typography>
-                            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                              {mcpConfig.microsoftEnterprise.grantedScopes.map((scope) => (
-                                <Chip
-                                  key={scope}
-                                  label={scope}
-                                  size="small"
-                                  color="success"
-                                  variant="outlined"
-                                />
-                              ))}
-                            </Box>
-                          </Box>
-                        )}
-                      </Box>
-                    )}
-                  </Box>
-                </Grid>
-
-                {/* Auto-Routing Info */}
-                {mcpConfig.lokka?.enabled && mcpConfig.microsoftEnterprise?.enabled && (
-                  <Grid item xs={12}>
-                    <Alert severity="success">
-                      <Typography variant="body2">
-                        <strong>Auto-Routing Enabled:</strong> Queries will be intelligently routed between servers.
-                        General queries → Lokka (privacy), Enterprise queries → Microsoft MCP (audit logs, PIM, etc.)
-                      </Typography>
-                    </Alert>
-                  </Grid>
-                )}
-
-                {!mcpConfig.lokka?.enabled && !mcpConfig.microsoftEnterprise?.enabled && (
-                  <Grid item xs={12}>
-                    <Alert severity="warning">
-                      <Typography variant="body2">
-                        <strong>No MCP Servers Enabled:</strong> At least one MCP server must be enabled for Graph queries.
-                      </Typography>
-                    </Alert>
-                  </Grid>
-                )}
               </Grid>
             </AccordionDetails>
           </Accordion>
@@ -2336,6 +2369,9 @@ const TenantProfileSelector: React.FC<TenantProfileSelectorProps> = ({
               }
               label="Lokka: use Graph beta endpoint"
             />
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4, mt: -0.5 }}>
+              Off = stable v1.0 (leaner results); on = beta (all properties). {MCP_ENDPOINT_REAUTH_NOTE}
+            </Typography>
           </Box>
         </Box>
       )}

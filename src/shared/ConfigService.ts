@@ -1071,7 +1071,8 @@ export class ConfigService {
       entraConfig: { ...entraConfig },
       mcp: {
         microsoftEnterpriseEnabled: mcpConfig.microsoftEnterprise?.enabled ?? false,
-        lokkaUseGraphBeta: mcpConfig.lokka?.useGraphBeta ?? true
+        // Default to the stable v1.0 Graph endpoint (leaner property set). Beta is opt-in.
+        lokkaUseGraphBeta: mcpConfig.lokka?.useGraphBeta ?? false
       },
       createdAt: now,
       updatedAt: now
@@ -1264,7 +1265,7 @@ export class ConfigService {
       clientSecret: lokkaConfig?.clientSecret ?? existingLokka?.clientSecret,
       useGraphPowerShell: lokkaConfig?.useGraphPowerShell ?? existingLokka?.useGraphPowerShell ?? defaultLokka.useGraphPowerShell,
       accessToken: lokkaConfig?.accessToken ?? existingLokka?.accessToken,
-      useGraphBeta: lokkaConfig?.useGraphBeta ?? existingLokka?.useGraphBeta
+      useGraphBeta: lokkaConfig?.useGraphBeta ?? existingLokka?.useGraphBeta ?? false
     };
     this.saveMCPConfig(currentConfig);
   }
@@ -1352,9 +1353,10 @@ export class ConfigService {
         break;
     }
 
-    // Lokka v2 defaults to the beta Graph endpoint (USE_GRAPH_BETA=true).
-    // Allow forcing the stable v1.0 endpoint via configuration.
-    if (lokkaConfig.useGraphBeta === false) {
+    // Lokka v2 defaults to the beta Graph endpoint internally. EntraPulse defaults to the
+    // stable v1.0 endpoint (leaner responses) and only uses beta when explicitly enabled,
+    // so force USE_GRAPH_BETA=false unless useGraphBeta === true.
+    if (lokkaConfig.useGraphBeta !== true) {
       env.USE_GRAPH_BETA = 'false';
     }
 

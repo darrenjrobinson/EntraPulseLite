@@ -13,6 +13,7 @@ import { MCPServerManager } from '../mcp/servers/MCPServerManager';
 import { GraphMCPClient } from '../mcp/clients/GraphMCPClient';
 import { MCPErrorHandler, ErrorCode } from '../mcp/utils';
 import { debugMCP, checkMCPServerHealth } from '../mcp/mcp-debug';
+import { McpAppsHost, HostConnection } from '../mcp/host/McpAppsHost';
 import { LOKKA_NPX_ARGS } from '../mcp/constants';
 import { VERSION } from '../shared/version';
 import { conversationContextManager } from '../shared/ConversationContextManager';
@@ -1582,6 +1583,32 @@ class EntraPulseLiteApp {
         console.error(`MCP list tools for server ${server} failed:`, mcpError);
         return [];
       }
+    });
+
+    // ---- MCP Apps (interactive UI) handlers --------------------------------
+    // Read a UI resource's HTML (text/html;profile=mcp-app) for McpAppFrame to render.
+    ipcMain.handle('mcp:ui:readResource', async (_event, serverId: string, resourceUri: string) => {
+      try {
+        const server = this.mcpServerManager?.getServer(serverId) as unknown as HostConnection | undefined;
+        if (!server || typeof server.readResource !== 'function') {
+          return { error: { code: -32603, message: `MCP server '${serverId}' does not support resources.` } };
+        }
+        return await server.readResource(resourceUri);
+      } catch (error) {
+        console.error(`mcp:ui:readResource(${serverId}, ${resourceUri}) failed:`, error);
+        return { error: { code: -32603, message: (error as Error).message } };
+      }
+    });
+
+    // Relay an iframe-initiated JSON-RPC request through the policy gate to the live server.
+    ipcMain.handle('mcp:ui:rpc', async (_event, serverId: string, request: any) => {
+      const host = new McpAppsHost({
+        getConnection: (id) => {
+          const server = this.mcpServerManager?.getServer(id) as unknown as HostConnection | undefined;
+          return server && typeof server.callTool === 'function' ? server : null;
+        },
+      });
+      return host.handleRpc(serverId, request);
     });
 
     // MCP Debug handlers

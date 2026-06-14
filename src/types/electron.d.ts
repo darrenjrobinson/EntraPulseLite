@@ -35,6 +35,12 @@ interface MCPAPI {
   call(server: string, toolName: string, arguments_: any): Promise<any>;
   listServers(): Promise<string[]>;
   listTools(server: string): Promise<any[]>;
+  restartLokkaMCPServer?(): Promise<any>;
+  // MCP Apps (interactive UI) bridge
+  ui?: {
+    readResource(serverId: string, resourceUri: string): Promise<any>;
+    rpc(serverId: string, request: any): Promise<any>;
+  };
 }
 
 interface ConfigAPI {

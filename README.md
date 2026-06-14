@@ -17,7 +17,7 @@ A free community desktop application that provides natural language querying of 
 - **Real-time LLM Status Monitoring**: Dynamic tracking of LLM availability with automatic UI updates
 - **Automatic Updates**: Seamless updates delivered through GitHub Releases with code signing and user control
 - **Built-in MCP Servers** (Recommended: Enable Both for Best Coverage): 
-  - **Lokka MCP** using the official @merill/lokka package (v2.0.0) - Fast, privacy-first Microsoft Graph and Azure Resource Manager API access for common queries
+  - **Lokka MCP** using the official @merill/lokka package (v2.0.0) - Fast, privacy-first Microsoft Graph and Azure Resource Manager API access for common queries, with **interactive MCP apps** (Graph Explorer, Connections, Permissions, Help) rendered inline in chat
   - **Microsoft Enterprise MCP** (Cloud) - Enterprise features: Audit Logs, PIM, Conditional Access, Device Compliance
   - Microsoft Docs MCP using the official MicrosoftDocs/MCP package for Microsoft Learn documentation and official Microsoft documentation
   - Fetch MCP for general web searches and documentation retrieval
@@ -171,9 +171,9 @@ EntraPulse Lite uses delegated permissions exclusively for secure, user-context 
 
 You can switch between modes in Settings → Entra Application Settings.
 
-### Tenant Profiles (Managed Services)
+### Tenant Profiles (Consultants / Managed Services)
 
-Managed Services teams that work across many customer tenants can save the Entra settings for each tenant as a named **Tenant Profile**:
+Consultants / Managed Services teams that work across many customer tenants can save the Entra settings for each tenant as a named **Tenant Profile**:
 
 - **Settings → Entra Application Settings → Tenant Profiles** - add, rename, or remove profiles; each captures the Client ID, Tenant ID, authentication options, and per-tenant MCP settings (Microsoft Enterprise MCP, Lokka Graph beta endpoint)
 - **Switching profiles** signs you out of the current tenant, clears cached tokens, reconfigures the MCP servers for the new tenant, and prompts you to sign in
@@ -226,7 +226,20 @@ Lokka MCP is ideal for common Microsoft Graph queries:
 - **Directory Objects** - Organizational units, domains, directory roles
 - **Mail & Calendar** - Messages, events, contacts (with appropriate permissions)
 - **Azure Resources** (Lokka v2) - Query Azure Resource Manager APIs such as subscriptions and resource configurations
-- **Graph API version control** (Lokka v2) - Defaults to the beta Graph endpoint; set `useGraphBeta: false` in the Lokka configuration to force stable v1.0
+- **Graph API version control** (Lokka v2) - Defaults to the **stable v1.0 Graph endpoint** for leaner responses (fewer properties). Enable beta only when you need preview-only data via **Settings → MCP Server Configuration → Lokka: use Graph beta endpoint** (or `useGraphBeta: true`). Changing this reconnects Lokka and prompts you to sign in again. The Graph Explorer's version selector reflects the version actually used.
+
+#### Interactive MCP Apps (Lokka v2)
+
+Lokka 2.0 ships interactive **MCP Apps** that EntraPulse Lite renders **inline in chat** — so you can explore results visually instead of reading raw JSON:
+
+- **Graph Explorer** - auto-opens on Graph queries. Shows the exact request (method, API version, path, query parameters) and the results as sortable tables or JSON, and lets you tweak and re-run the query. Compact by default; expands when you open the query.
+- **Connections**, **Permissions**, **Help** - manage tenant connections, review the Graph scopes Lokka has, and tour what Lokka can do.
+
+How it works and how it stays secure:
+- Apps run in a **sandboxed iframe** (`allow-scripts`, no same-origin) with a per-app **Content-Security-Policy** derived from the app's manifest. Only the official SDK transport serves these `ui://` resources.
+- **EntraPulse Lite keeps owning authentication.** UI-initiated tool calls pass through a policy gate: read/display calls are allowed, while **auth-mutating actions** (sign-in, add user/service-principal connection, grant consent) are **blocked** and you're pointed to EntraPulse Lite's own auth settings.
+- Toggle inline rendering with **Settings → MCP Server Configuration → Enable interactive MCP apps** (default **on**). When off, results render as text/JSON only — the text answer is always present as a fallback.
+- Interactive apps require a signed-in Lokka connection (the SDK transport). If that's unavailable, the app degrades quietly to the text answer.
 
 #### Microsoft Enterprise MCP Server (Complex Enterprise Queries)
 

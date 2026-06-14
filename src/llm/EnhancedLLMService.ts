@@ -11,7 +11,8 @@ import { UnifiedLLMService } from './UnifiedLLMService';
 import { UnifiedPromptService, PermissionContext } from './UnifiedPromptService';
 import { conversationContextManager, ConversationContextManager } from '../shared/ConversationContextManager';
 import { MCPQueryRouter, RoutingDecision } from '../mcp/routing/MCPQueryRouter';
-import { LOKKA_NPX_ARGS } from '../mcp/constants';
+import { LOKKA_NPX_ARGS, LOKKA_TOOL_DEFINITION_UI_RESOURCES, graphApiVersionFromBeta } from '../mcp/constants';
+import { McpUiResourceRef, resolveUiResourceUri } from '../mcp/types';
 
 export interface QueryAnalysis {
   needsFetchMcp: boolean;
@@ -37,6 +38,8 @@ export interface EnhancedLLMResponse {
   };
   mcpServerUsed?: 'lokka' | 'microsoft-enterprise';
   finalResponse: string;
+  // MCP Apps: set when a tool call references an interactive UI resource to render inline.
+  uiResource?: McpUiResourceRef;
   traceData: {
     steps: string[];
     timing: Record<string, number>;
@@ -153,7 +156,9 @@ export class EnhancedLLMService {
       trace.push(`Query analysis completed: ${analysis.reasoning}`);// Step 2: MCP servers are automatically initialized in constructor
       trace.push('MCP servers ready');      // Step 3: Execute MCP operations based on analysis
       const mcpResults: { fetchResult?: any; lokkaResult?: any; microsoftDocsResult?: any; microsoftEnterpriseResult?: any } = {};
-      let mcpServerUsed: 'lokka' | 'microsoft-enterprise' | undefined = undefined;      // Microsoft Docs MCP for documentation (preferred)
+      let mcpServerUsed: 'lokka' | 'microsoft-enterprise' | undefined = undefined;
+      let uiResource: McpUiResourceRef | undefined = undefined; // MCP Apps: UI to render inline
+      // Microsoft Docs MCP for documentation (preferred)
       if (analysis.needsMicrosoftDocsMcp) {
         try {
           trace.push('Attempting Microsoft Docs MCP via HTTP Streamable transport');
@@ -488,14 +493,36 @@ export class EnhancedLLMService {
             
             console.log(`🔧 EnhancedLLMService: Using MCP server: ${serverName}, tool: ${toolName}`);
             
-            // Lokka uses 'path' parameter, not 'endpoint'
-            mcpResults.lokkaResult = await this.mcpClient.callTool(serverName, toolName, {
+            // Lokka uses 'path' parameter, not 'endpoint'.
+            // Pass graphApiVersion explicitly so the actual query and the Graph Explorer's
+            // displayed version always agree. Mirror the configured endpoint: Lokka v2
+            // defaults to beta, but we surface v1.0 unless beta is explicitly enabled —
+            // v1.0 returns a leaner property set (less response noise).
+            const graphApiVersion = graphApiVersionFromBeta(this.mcpConfig?.lokka?.useGraphBeta);
+            const lokkaArgs = {
               apiType: 'graph',
               method: method,
               path: analysis.graphEndpoint,
+              graphApiVersion,
               queryParams: stringifiedQueryParams
-            });
+            };
+            mcpResults.lokkaResult = await this.mcpClient.callTool(serverName, toolName, lokkaArgs);
             trace.push('Lokka MCP completed successfully');
+
+            // MCP Apps: if this tool references an interactive UI resource, surface it so
+            // the renderer can mount an McpAppFrame. Lokka-Microsoft auto-opens the graph
+            // explorer (link on the tool definition); open-* tools carry it on the result.
+            // The args populate the explorer's query form (ui/notifications/tool-input).
+            const resourceUri = resolveUiResourceUri(toolName, mcpResults.lokkaResult, LOKKA_TOOL_DEFINITION_UI_RESOURCES);
+            if (resourceUri) {
+              const r = mcpResults.lokkaResult;
+              uiResource = {
+                serverId: serverName,
+                resourceUri,
+                toolName,
+                initialData: { arguments: lokkaArgs, structuredContent: r?.structuredContent, content: r?.content, isError: r?.isError }
+              };
+            }
           }
         } catch (error) {
           const errorMsg = `Graph MCP failed: ${error}`;
@@ -522,6 +549,7 @@ export class EnhancedLLMService {
         mcpResults,
         mcpServerUsed,
         finalResponse,
+        uiResource,
         traceData: {
           steps: trace,
           timing: { totalTime: Date.now() - startTime },

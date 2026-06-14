@@ -8,8 +8,10 @@ import { StdioMCPClient } from '../../clients/StdioMCPClient';
 import { EnhancedStdioMCPClient } from '../../clients/EnhancedStdioMCPClient';
 import { ManagedLokkaMCPClient } from '../../clients/ManagedLokkaMCPClient';
 import { PersistentLokkaMCPClient } from '../../clients/PersistentLokkaMCPClient';
+import { SdkMcpConnection } from '../../clients/SdkMcpConnection';
 import { ConfigService } from '../../../shared/ConfigService';
 import { LOKKA_NPX_ARGS, LOKKA_EXPOSED_TOOLS } from '../../constants';
+import { VERSION } from '../../../shared/version';
 
 export interface ExternalLokkaMCPServerConfig extends MCPServerConfig {
   env?: {
@@ -29,6 +31,7 @@ export class ExternalLokkaMCPStdioServer {
   private enhancedMcpClient: EnhancedStdioMCPClient | null = null;
   private managedClient: ManagedLokkaMCPClient | null = null;
   private persistentClient: PersistentLokkaMCPClient | null = null; // NEW: Persistent client
+  private sdkConnection: SdkMcpConnection | null = null; // NEW: official @modelcontextprotocol/sdk transport (tier-0)
   private tools: MCPTool[] = [];
   private isStarting: boolean = false; // NEW: Prevent concurrent startup attempts
   private startupPromise: Promise<void> | null = null; // NEW: Track ongoing startup
@@ -233,6 +236,81 @@ export class ExternalLokkaMCPStdioServer {
       hasPreProvidedToken: !!(env.ACCESS_TOKEN && env.ACCESS_TOKEN !== 'dummy-token-will-be-replaced'),
       useInteractive: env.USE_INTERACTIVE || 'not-set'
     });
+
+    // TIER 0 (PRIMARY): Official @modelcontextprotocol/sdk transport.
+    // Replaces the hand-rolled stdio clients with the SDK Client + StdioClientTransport
+    // (see docs/EntraPulse-Lokka-MCP-Apps-Plan.md Phase 1). Like the persistent/managed
+    // clients it authenticates via environment variables (USE_CLIENT_TOKEN / ACCESS_TOKEN),
+    // so no set-access-token call is needed. The legacy clients below remain as fallback.
+    // Opt out at runtime with LOKKA_USE_SDK_TRANSPORT=false.
+    const useSdkTransport = env.LOKKA_USE_SDK_TRANSPORT !== 'false';
+    if (useSdkTransport) {
+      console.log('🚀 [ExternalLokkaMCPStdioServer] Attempting SDK transport first (official @modelcontextprotocol/sdk)...');
+      try {
+        const filteredEnv: Record<string, string> = {};
+        Object.entries(env).forEach(([key, value]) => {
+          if (value !== undefined && value !== '') {
+            filteredEnv[key] = value;
+          }
+        });
+
+        if (!filteredEnv.TENANT_ID || !filteredEnv.CLIENT_ID) {
+          console.warn('⚠️ [SDK Transport] Required environment variables (TENANT_ID, CLIENT_ID) missing - skipping SDK transport');
+          throw new Error('Required environment variables (TENANT_ID, CLIENT_ID) are missing or empty for SDK transport');
+        }
+
+        this.sdkConnection = new SdkMcpConnection({
+          command: clientConfig.command || 'npx',
+          args: clientConfig.args || [...LOKKA_NPX_ARGS],
+          env: filteredEnv,
+          clientInfo: { name: 'EntraPulseLite', version: VERSION },
+          // Lokka registers its UI resources unconditionally; no special apps
+          // capability is required at the MCP transport layer (MCP_APPS_CONTRACT.md §1).
+          capabilities: {},
+          onStderr: (line) => console.log(`[Lokka stderr] ${line}`),
+        });
+
+        console.log('🔧 [ExternalLokkaMCPStdioServer] Starting SDK transport...');
+        await this.sdkConnection.start();
+
+        console.log('✅ [ExternalLokkaMCPStdioServer] SDK transport connected successfully');
+        console.log('🎉 Lokka MCP server ready via official SDK transport');
+
+        // Refresh the exposed tool list from the live server.
+        try {
+          const sdkTools = await this.sdkConnection.listTools();
+          if (sdkTools.length > 0) {
+            this.tools = this.filterExposedTools(sdkTools.map((t) => ({
+              name: t.name,
+              description: t.description || '',
+              inputSchema: (t.inputSchema as object) || {},
+            })));
+          }
+        } catch (toolsError) {
+          console.warn('⚠️ [SDK Transport] Could not list tools after connect:', toolsError);
+        }
+
+        await this.verifyEnvironmentConfig();
+
+        // SDK transport authenticates via env vars (same as persistent/managed) — no
+        // set-access-token call (which would error with "Token update only supported...").
+        console.log('✅ SDK transport uses environment variables for authentication - no token setting required');
+
+        return; // Success with SDK transport
+      } catch (sdkError) {
+        console.warn('⚠️ [ExternalLokkaMCPStdioServer] SDK transport failed, falling back to persistent client:', sdkError);
+        if (this.sdkConnection) {
+          try {
+            await this.sdkConnection.stop();
+          } catch (stopError) {
+            console.warn('Error stopping SDK transport:', stopError);
+          }
+          this.sdkConnection = null;
+        }
+      }
+    } else {
+      console.log('⏭️ [ExternalLokkaMCPStdioServer] SDK transport disabled (LOKKA_USE_SDK_TRANSPORT=false) - using legacy clients');
+    }
 
     // FIRST PRIORITY: Try the Persistent Lokka Client (like a Runspace - start once, reuse)
     console.log('🚀 [ExternalLokkaMCPStdioServer] Attempting Persistent Lokka Client first (Runspace-style)...');
@@ -469,7 +547,10 @@ export class ExternalLokkaMCPStdioServer {
       let activeClient: any = null;
       let clientType = 'none';
       
-      if (this.persistentClient && (this.persistentClient as any).isInitialized && (this.persistentClient as any).isInitialized()) {
+      if (this.sdkConnection && this.sdkConnection.isInitialized()) {
+        activeClient = this.sdkConnection;
+        clientType = 'sdk';
+      } else if (this.persistentClient && (this.persistentClient as any).isInitialized && (this.persistentClient as any).isInitialized()) {
         activeClient = this.persistentClient;
         clientType = 'persistent';
       } else if (this.managedClient && (this.managedClient as any).isInitialized && (this.managedClient as any).isInitialized()) {
@@ -520,7 +601,19 @@ export class ExternalLokkaMCPStdioServer {
 
   async stopServer(): Promise<void> {
     console.log('Stopping Lokka MCP server...');
-    
+
+    // Stop SDK transport if it's being used (tier-0)
+    if (this.sdkConnection) {
+      try {
+        console.log('Stopping SDK transport...');
+        await this.sdkConnection.stop();
+        this.sdkConnection = null;
+        console.log('SDK transport stopped');
+      } catch (error) {
+        console.warn('Error stopping SDK transport:', error);
+      }
+    }
+
     // Stop persistent client if it's being used
     if (this.persistentClient) {
       try {
@@ -590,6 +683,20 @@ export class ExternalLokkaMCPStdioServer {
   }
 
   async listTools(): Promise<MCPTool[]> {
+    // Try SDK transport first (tier-0)
+    if (this.sdkConnection && this.sdkConnection.isInitialized()) {
+      try {
+        const tools = await this.sdkConnection.listTools();
+        return this.filterExposedTools(tools.map((tool) => ({
+          name: tool.name,
+          description: tool.description || '',
+          inputSchema: (tool.inputSchema as object) || {},
+        })));
+      } catch (error) {
+        console.error('Failed to list tools from SDK transport:', error);
+      }
+    }
+
     // Try persistent client first
     if (this.persistentClient && this.persistentClient.isInitialized && this.persistentClient.isInitialized()) {
       try {
@@ -654,7 +761,10 @@ export class ExternalLokkaMCPStdioServer {
     let activeClient: any = null;
     let clientType = 'none';
     
-    if (this.persistentClient && this.persistentClient.isInitialized()) {
+    if (this.sdkConnection && this.sdkConnection.isInitialized()) {
+      activeClient = this.sdkConnection;
+      clientType = 'sdk';
+    } else if (this.persistentClient && this.persistentClient.isInitialized()) {
       activeClient = this.persistentClient;
       clientType = 'persistent';
     } else if (this.managedClient && this.managedClient.isInitialized()) {
@@ -760,7 +870,10 @@ export class ExternalLokkaMCPStdioServer {
     let activeClient: any = null;
     let clientType = 'none';
     
-    if (this.persistentClient && this.persistentClient.isInitialized()) {
+    if (this.sdkConnection && this.sdkConnection.isInitialized()) {
+      activeClient = this.sdkConnection;
+      clientType = 'sdk';
+    } else if (this.persistentClient && this.persistentClient.isInitialized()) {
       activeClient = this.persistentClient;
       clientType = 'persistent';
     } else if (this.managedClient && this.managedClient.isInitialized()) {
@@ -899,9 +1012,27 @@ export class ExternalLokkaMCPStdioServer {
     }
   }
 
+  // MCP Apps: read a UI resource (text/html;profile=mcp-app) from the live server.
+  // Only the SDK transport (tier-0) supports resources/*; the legacy clients do not.
+  async readResource(uri: string): Promise<any> {
+    if (this.sdkConnection && this.sdkConnection.isInitialized()) {
+      return this.sdkConnection.readResource(uri);
+    }
+    throw new Error('resources/read is only available via the SDK transport (tier-0). Active client does not support MCP resources.');
+  }
+
+  // MCP Apps: list UI resources from the live server (SDK transport only).
+  async listResources(): Promise<any[]> {
+    if (this.sdkConnection && this.sdkConnection.isInitialized()) {
+      return this.sdkConnection.listResources();
+    }
+    throw new Error('resources/list is only available via the SDK transport (tier-0).');
+  }
+
   // Check if the server is running and initialized
   isReady(): boolean {
-    return (this.persistentClient && this.persistentClient.isInitialized()) ||
+    return (this.sdkConnection && this.sdkConnection.isInitialized()) ||
+           (this.persistentClient && this.persistentClient.isInitialized()) ||
            (this.managedClient && this.managedClient.isInitialized()) ||
            (this.enhancedMcpClient && this.enhancedMcpClient.isInitialized()) ||
            (this.mcpClient && this.mcpClient.isInitialized()) ||
@@ -912,8 +1043,14 @@ export class ExternalLokkaMCPStdioServer {
     let running = false;
     let initialized = false;
     let activeClient = 'none';
-    
-    if (this.persistentClient && this.persistentClient.isAlive()) {
+
+    if (this.sdkConnection && this.sdkConnection.isAlive()) {
+      running = true;
+      if (this.sdkConnection.isInitialized()) {
+        initialized = true;
+        activeClient = 'sdk';
+      }
+    } else if (this.persistentClient && this.persistentClient.isAlive()) {
       running = true;
       if (this.persistentClient.isInitialized()) {
         initialized = true;
@@ -982,7 +1119,10 @@ export class ExternalLokkaMCPStdioServer {
       let activeClient: any = null;
       let clientType = 'none';
       
-      if (this.persistentClient && this.persistentClient.isInitialized()) {
+      if (this.sdkConnection && this.sdkConnection.isInitialized()) {
+        activeClient = this.sdkConnection;
+        clientType = 'sdk';
+      } else if (this.persistentClient && this.persistentClient.isInitialized()) {
         activeClient = this.persistentClient;
         clientType = 'persistent';
       } else if (this.managedClient && this.managedClient.isInitialized()) {

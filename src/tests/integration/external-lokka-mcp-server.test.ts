@@ -44,7 +44,11 @@ describe('ExternalLokkaMCPStdioServer Four-Tier Architecture', () => {
         CLIENT_ID: 'test-client-id',
         ACCESS_TOKEN: 'test-access-token',
         USE_CLIENT_TOKEN: 'true',
-        USE_INTERACTIVE: 'false'
+        USE_INTERACTIVE: 'false',
+        // These tests target the legacy four-tier client architecture. Disable the
+        // tier-0 SDK transport so it doesn't attempt a real npx spawn here; tier-0 is
+        // covered by lokka-sdk-transport.test.ts and SdkMcpConnection.test.ts.
+        LOKKA_USE_SDK_TRANSPORT: 'false'
       }
     };
 

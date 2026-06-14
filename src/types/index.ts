@@ -1,5 +1,8 @@
 // Global type definitions for EntraPulse Lite
 
+import type { McpUiResourceRef } from '../mcp/types';
+export type { McpUiResourceRef };
+
 export type LogLevel = 'Error' | 'Warning' | 'Info' | 'Verbose';
 
 export interface User {
@@ -38,6 +41,9 @@ export interface ChatMessage {
       microsoftEnterpriseResult?: any;
     };
     mcpServerUsed?: 'lokka' | 'microsoft-enterprise' | 'auto-routed'; // Track which MCP server handled the query
+    // MCP Apps: when a tool call references an interactive UI resource, the renderer
+    // mounts an McpAppFrame for it. See McpUiResourceRef / docs/MCP_APPS_CONTRACT.md.
+    uiResource?: McpUiResourceRef;
     traceData?: {
       steps: string[];
       timing: Record<string, number>;
@@ -118,6 +124,9 @@ export interface MCPAuthConfig {
 
 // Add new interface for storing MCP configuration
 export interface MCPConfig {
+  // MCP Apps: render Lokka's interactive UIs (Graph Explorer, etc.) inline in chat.
+  // Defaults to on; false = text/JSON results only. See docs/MCP_APPS_CONTRACT.md.
+  interactiveApps?: boolean;
   lokka?: {
     enabled: boolean;
     authMode: 'client-credentials' | 'enhanced-graph-access' | 'delegated';
@@ -259,6 +268,8 @@ export interface EnhancedLLMResponse {
   };
   mcpServerUsed?: 'lokka' | 'microsoft-enterprise';
   finalResponse: string;
+  // MCP Apps: set when a tool call references an interactive UI resource to render inline.
+  uiResource?: McpUiResourceRef;
   traceData: {
     steps: string[];
     timing: Record<string, number>;

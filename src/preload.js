@@ -59,6 +59,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     listServers: () => ipcRenderer.invoke('mcp:listServers'),
     listTools: (server) => ipcRenderer.invoke('mcp:listTools', server),
     restartLokkaMCPServer: () => ipcRenderer.invoke('mcp:restartLokkaMCPServer'),
+    // MCP Apps (interactive UI) bridge
+    ui: {
+      readResource: (serverId, resourceUri) => ipcRenderer.invoke('mcp:ui:readResource', serverId, resourceUri),
+      rpc: (serverId, request) => ipcRenderer.invoke('mcp:ui:rpc', serverId, request),
+    },
   },
 
   // Configuration methods

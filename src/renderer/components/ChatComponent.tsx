@@ -46,6 +46,8 @@ import { ChatMessage, User, AuthToken, EnhancedLLMResponse, QueryAnalysis } from
 import { AppIcon } from './AppIcon';
 import { UserProfileAvatar } from './UserProfileAvatar';
 import { UserProfileDropdown } from './UserProfileDropdown';
+import { McpAppFrame } from './McpAppFrame';
+import { interactiveMcpAppsEnabled } from '../../shared/mcpSettings';
 import { useLLMStatus } from '../context/LLMStatusContext';
 import { eventManager } from '../../shared/EventManager';
 
@@ -54,6 +56,8 @@ interface ChatComponentProps {}
 export const ChatComponent: React.FC<ChatComponentProps> = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputMessage, setInputMessage] = useState('');
+  // MCP Apps: render interactive iframes inline (default on; text fallback always present).
+  const [mcpAppsEnabled, setMcpAppsEnabled] = useState(true);
   const [isLoading, setIsLoading] = useState(false);  const [user, setUser] = useState<User | null>(null);
   const [authToken, setAuthToken] = useState<AuthToken | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -101,6 +105,16 @@ export const ChatComponent: React.FC<ChatComponentProps> = () => {
 
   useEffect(() => {
     initializeApp();
+  }, []);
+
+  // MCP Apps: load the "Enable interactive MCP apps" toggle (default on).
+  useEffect(() => {
+    (async () => {
+      try {
+        const mcp = await (window as any).electronAPI?.config?.getMCPConfig?.();
+        setMcpAppsEnabled(interactiveMcpAppsEnabled(mcp));
+      } catch { /* keep default (enabled) */ }
+    })();
   }, []);
 
   // Listen for default cloud provider changes
@@ -487,6 +501,7 @@ export const ChatComponent: React.FC<ChatComponentProps> = () => {
           queryAnalysis: typedResponse.analysis,
           mcpResults: typedResponse.mcpResults,
           mcpServerUsed: typedResponse.mcpServerUsed,
+          uiResource: typedResponse.uiResource, // MCP Apps: inline UI to render (Phase 3 mounts McpAppFrame)
           traceData: typedResponse.traceData,
         };
       } else {
@@ -1314,7 +1329,15 @@ What would you like to explore?`,
                           {message.content}
                         </ReactMarkdown>
                       </Box>
-                      
+
+                      {/* MCP Apps: interactive UI rendered inline (text above remains as fallback) */}
+                      {mcpAppsEnabled && message.metadata?.uiResource && (
+                        <McpAppFrame
+                          uiResource={message.metadata.uiResource}
+                          onSendMessage={(text) => setInputMessage(text)}
+                        />
+                      )}
+
                       {/* Enhanced trace data display */}
                       {message.metadata?.traceData && expandedTraces.has(message.id) && (
                         <Box sx={{ mt: 2, p: 2, bgcolor: 'background.default', borderRadius: 1 }}>
