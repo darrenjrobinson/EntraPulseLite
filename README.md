@@ -230,10 +230,14 @@ Lokka MCP is ideal for common Microsoft Graph queries:
 
 #### Interactive MCP Apps (Lokka v2)
 
-Lokka 2.0 ships interactive **MCP Apps** that EntraPulse Lite renders **inline in chat** — so you can explore results visually instead of reading raw JSON:
+EntraPulse Lite supports **all four** of Lokka 2.0's interactive **MCP Apps**, rendered **inline in chat** so you can explore results visually instead of reading raw JSON:
 
-- **Graph Explorer** - auto-opens on Graph queries. Shows the exact request (method, API version, path, query parameters) and the results as sortable tables or JSON, and lets you tweak and re-run the query. Compact by default; expands when you open the query.
-- **Connections**, **Permissions**, **Help** - manage tenant connections, review the Graph scopes Lokka has, and tour what Lokka can do.
+- **Graph Explorer** - auto-opens on any Graph query. Shows the exact request (method, API version, path, query parameters) and the results as sortable tables or JSON, and lets you tweak and re-run the query. Compact by default; expands when you open the query.
+- **Multi-Tenant Connection Manager** - sign into one or more tenants (as a user or service principal) and switch the active connection. Open it by asking, e.g. *"open the connection manager"*, *"add a tenant"*, *"switch to a different tenant"*.
+- **Permissions Manager** - review the Graph scopes on your current token and search the full permission catalog. Open it with, e.g. *"open the permissions manager"*, *"review my permissions"*, *"what scopes do I have"*.
+- **Visual Help** - a guided tour of what Lokka can do. Open it with, e.g. *"what can Lokka do?"* or *"show me the Lokka help"*.
+
+The Connections, Permissions, and Help apps open automatically when your request matches one of those intents; otherwise queries run normally and the Graph Explorer is shown.
 
 How it works and how it stays secure:
 - Apps run in a **sandboxed iframe** (`allow-scripts`, no same-origin) with a per-app **Content-Security-Policy** derived from the app's manifest. Only the official SDK transport serves these `ui://` resources.

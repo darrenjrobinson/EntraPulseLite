@@ -11,7 +11,7 @@ import { UnifiedLLMService } from './UnifiedLLMService';
 import { UnifiedPromptService, PermissionContext } from './UnifiedPromptService';
 import { conversationContextManager, ConversationContextManager } from '../shared/ConversationContextManager';
 import { MCPQueryRouter, RoutingDecision } from '../mcp/routing/MCPQueryRouter';
-import { LOKKA_NPX_ARGS, LOKKA_TOOL_DEFINITION_UI_RESOURCES, graphApiVersionFromBeta } from '../mcp/constants';
+import { LOKKA_NPX_ARGS, LOKKA_TOOL_DEFINITION_UI_RESOURCES, graphApiVersionFromBeta, detectLokkaAppIntent } from '../mcp/constants';
 import { McpUiResourceRef, resolveUiResourceUri } from '../mcp/types';
 
 export interface QueryAnalysis {
@@ -158,6 +158,35 @@ export class EnhancedLLMService {
       const mcpResults: { fetchResult?: any; lokkaResult?: any; microsoftDocsResult?: any; microsoftEnterpriseResult?: any } = {};
       let mcpServerUsed: 'lokka' | 'microsoft-enterprise' | undefined = undefined;
       let uiResource: McpUiResourceRef | undefined = undefined; // MCP Apps: UI to render inline
+
+      // MCP Apps intent routing: if the user is explicitly asking to manage connections,
+      // review permissions, or get help, open the matching Lokka app inline instead of
+      // running a Graph query. open-* results carry _meta.ui.resourceUri directly.
+      let appOpened = false;
+      const lokkaEnabled = this.mcpConfig?.lokka?.enabled !== false;
+      const appIntent = detectLokkaAppIntent(userQuery);
+      if (appIntent && lokkaEnabled) {
+        try {
+          trace.push(`Opening Lokka MCP app via intent: ${appIntent.tool}`);
+          const appResult = await this.mcpClient.callTool('external-lokka', appIntent.tool, {});
+          mcpResults.lokkaResult = appResult;
+          mcpServerUsed = 'lokka';
+          const resourceUri = resolveUiResourceUri(appIntent.tool, appResult, LOKKA_TOOL_DEFINITION_UI_RESOURCES) || appIntent.resourceUri;
+          uiResource = {
+            serverId: 'external-lokka',
+            resourceUri,
+            toolName: appIntent.tool,
+            initialData: { structuredContent: appResult?.structuredContent, content: appResult?.content, isError: appResult?.isError }
+          };
+          appOpened = true;
+          trace.push('Lokka MCP app opened');
+        } catch (error) {
+          const errorMsg = `Failed to open Lokka MCP app (${appIntent.tool}): ${error}`;
+          errors.push(errorMsg);
+          trace.push(errorMsg);
+        }
+      }
+
       // Microsoft Docs MCP for documentation (preferred)
       if (analysis.needsMicrosoftDocsMcp) {
         try {
@@ -228,7 +257,8 @@ export class EnhancedLLMService {
       }
 
       // Microsoft Graph data - Use intelligent routing between Lokka and Microsoft Enterprise MCP
-      if (analysis.needsLokkaMcp && analysis.graphEndpoint) {
+      // (skipped when an MCP app was opened via intent above)
+      if (analysis.needsLokkaMcp && analysis.graphEndpoint && !appOpened) {
         try {
           // Determine which MCP server to use based on query routing
           // Debug: Log the mcpConfig values to understand routing

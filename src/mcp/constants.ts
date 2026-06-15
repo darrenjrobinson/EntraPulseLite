@@ -54,6 +54,62 @@ export function graphApiVersionFromBeta(useGraphBeta?: boolean): 'beta' | 'v1.0'
   return useGraphBeta ? 'beta' : 'v1.0';
 }
 
+// Intent routing for Lokka's interactive MCP apps. When the user clearly wants to manage
+// connections, review permissions, or get help, EntraPulse opens the matching open-* tool
+// so its MCP app renders inline (rather than running a Graph query). Patterns are kept
+// specific to app-management intents to avoid hijacking ordinary Graph questions.
+export const LOKKA_APP_INTENTS: Array<{ tool: string; resourceUri: string; patterns: RegExp[] }> = [
+  {
+    tool: 'open-lokka-connections',
+    resourceUri: 'ui://lokka/connections.html',
+    patterns: [
+      /\b(connection|tenant)\s+manager\b/i,
+      /\bmanage\s+(my\s+)?(connections|tenants)\b/i,
+      /\bmulti[-\s]?tenant\b/i,
+      /\badd\s+(a\s+)?(connection|tenant)\b/i,
+      /\b(switch|change)\s+(to\s+)?(?:a\s+|an\s+|another\s+|different\s+|the\s+|my\s+)*tenant\b/i,
+      /\bsign\s*in\s+to\s+(another|a\s+different)\s+tenant\b/i,
+    ],
+  },
+  {
+    tool: 'open-lokka-permissions',
+    resourceUri: 'ui://lokka/permissions.html',
+    patterns: [
+      /\bpermissions?\s+manager\b/i,
+      /\bmanage\s+(my\s+)?permissions\b/i,
+      /\breview\s+(my\s+)?(graph\s+)?permissions\b/i,
+      /\b(grant|manage)\s+consent\b/i,
+      /\bconsent\s+to\b/i,
+      /\bwhat\s+(scopes|permissions)\s+(do\s+i\s+have|are\s+granted)\b/i,
+    ],
+  },
+  {
+    tool: 'open-lokka-help',
+    resourceUri: 'ui://lokka/help.html',
+    patterns: [
+      /\blokka\s+help\b/i,
+      /\bwhat\s+can\s+lokka\s+do\b/i,
+      /\bhelp\s+tour\b/i,
+      /\bshow\s+(me\s+)?(the\s+)?lokka\s+help\b/i,
+      /\bgetting\s+started\s+with\s+lokka\b/i,
+    ],
+  },
+];
+
+/**
+ * Detect whether a user query is an explicit request to open one of Lokka's MCP apps.
+ * Returns the open-* tool + its UI resource, or null if it's an ordinary query.
+ */
+export function detectLokkaAppIntent(query: string): { tool: string; resourceUri: string } | null {
+  if (!query) return null;
+  for (const intent of LOKKA_APP_INTENTS) {
+    if (intent.patterns.some((p) => p.test(query))) {
+      return { tool: intent.tool, resourceUri: intent.resourceUri };
+    }
+  }
+  return null;
+}
+
 // Tools whose UI link lives on the tool DEFINITION rather than the call result.
 // Lokka-Microsoft auto-opens the graph explorer (its result does not carry _meta,
 // only the definition does). The open-* tools carry _meta on their results directly,

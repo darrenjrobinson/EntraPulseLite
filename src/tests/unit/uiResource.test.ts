@@ -1,6 +1,6 @@
 // Unit tests for MCP Apps UI-resource resolution (Phase 2).
 import { resolveUiResourceUri } from '../../mcp/types';
-import { LOKKA_TOOL_DEFINITION_UI_RESOURCES, LOKKA_EXPOSED_TOOLS, LOKKA_UI_APP_TOOLS, graphApiVersionFromBeta } from '../../mcp/constants';
+import { LOKKA_TOOL_DEFINITION_UI_RESOURCES, LOKKA_EXPOSED_TOOLS, LOKKA_UI_APP_TOOLS, graphApiVersionFromBeta, detectLokkaAppIntent } from '../../mcp/constants';
 
 describe('resolveUiResourceUri', () => {
   it('reads nested _meta.ui.resourceUri from a tool result (open-* tools)', () => {
@@ -34,6 +34,32 @@ describe('graphApiVersionFromBeta', () => {
     expect(graphApiVersionFromBeta(undefined)).toBe('v1.0');
     expect(graphApiVersionFromBeta(false)).toBe('v1.0');
     expect(graphApiVersionFromBeta(true)).toBe('beta');
+  });
+});
+
+describe('detectLokkaAppIntent', () => {
+  it('routes connection-management intents to open-lokka-connections', () => {
+    for (const q of ['open the connection manager', 'manage my connections', 'add a tenant', 'switch to a different tenant', 'multi-tenant setup']) {
+      expect(detectLokkaAppIntent(q)).toEqual({ tool: 'open-lokka-connections', resourceUri: 'ui://lokka/connections.html' });
+    }
+  });
+
+  it('routes permission-management intents to open-lokka-permissions', () => {
+    for (const q of ['open the permissions manager', 'review my permissions', 'grant consent', 'what scopes do I have']) {
+      expect(detectLokkaAppIntent(q)).toEqual({ tool: 'open-lokka-permissions', resourceUri: 'ui://lokka/permissions.html' });
+    }
+  });
+
+  it('routes help intents to open-lokka-help', () => {
+    for (const q of ['lokka help', 'what can lokka do', 'show me the lokka help']) {
+      expect(detectLokkaAppIntent(q)).toEqual({ tool: 'open-lokka-help', resourceUri: 'ui://lokka/help.html' });
+    }
+  });
+
+  it('does NOT hijack ordinary Graph queries', () => {
+    for (const q of ['list all users', 'show my group memberships', 'how many guest accounts are there', 'get the CEO of the company', '']) {
+      expect(detectLokkaAppIntent(q)).toBeNull();
+    }
   });
 });
 
