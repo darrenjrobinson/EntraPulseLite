@@ -120,4 +120,4 @@ Write-Host "2. Test manual release workflow in GitHub Actions" -ForegroundColor 
 Write-Host "3. Create beta branches to test automated workflows" -ForegroundColor White
 Write-Host "4. Remove certificate files after GitHub Secrets are set" -ForegroundColor White
 Write-Host ""
-Write-Host "For detailed instructions, see docs/TESTING-WORKFLOWS.md" -ForegroundColor Cyan
+Write-Host "For detailed instructions, see docs/WORKFLOWS.md" -ForegroundColor Cyan

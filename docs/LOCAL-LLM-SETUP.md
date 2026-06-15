@@ -74,8 +74,6 @@ If you start or stop Ollama after launching EntraPulse Lite, the application wil
 3. Use the "Refresh" button on the LLM status indicator to force an immediate check
 4. Restart EntraPulse Lite if needed
 
-For more information on real-time LLM status monitoring, see [LOCAL-LLM-STATUS-MONITORING.md](LOCAL-LLM-STATUS-MONITORING.md).
-
 ## API Usage in Applications
 
 The Ollama API is available at `http://localhost:11434`. Example Python integration:
