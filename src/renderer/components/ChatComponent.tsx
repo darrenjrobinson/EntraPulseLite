@@ -452,8 +452,11 @@ export const ChatComponent: React.FC<ChatComponentProps> = () => {
   const handleCloseProfileDropdown = () => {
     setProfileDropdownAnchor(null);
   };
-  const handleSendMessage = async () => {
-    if (!inputMessage.trim() || isLoading) return;
+  const handleSendMessage = async (messageText?: string) => {
+    // messageText may be passed by MCP apps (ui/message, e.g. example query chips).
+    // Guard against an event object being passed by onClick={handleSendMessage}.
+    const text = (typeof messageText === 'string' ? messageText : inputMessage).trim();
+    if (!text || isLoading) return;
 
     // Force check LLM availability before sending
     await forceLLMCheck();
@@ -467,7 +470,7 @@ export const ChatComponent: React.FC<ChatComponentProps> = () => {
     const userMessage: ChatMessage = {
       id: Date.now().toString(),
       role: 'user',
-      content: inputMessage.trim(),
+      content: text,
       timestamp: new Date(),
     };
 
@@ -1334,7 +1337,8 @@ What would you like to explore?`,
                       {mcpAppsEnabled && message.metadata?.uiResource && (
                         <McpAppFrame
                           uiResource={message.metadata.uiResource}
-                          onSendMessage={(text) => setInputMessage(text)}
+                          onSendMessage={(text) => handleSendMessage(text)}
+                          onFillInput={(text) => setInputMessage(text)}
                         />
                       )}
 
@@ -1510,7 +1514,7 @@ What would you like to explore?`,
           />
           <Button
             variant="contained"
-            onClick={handleSendMessage}
+            onClick={() => handleSendMessage()}
             disabled={!inputMessage.trim() || isLoading || !chatAvailable}            sx={{ 
               minWidth: 60,
               height: 44,  // Slightly reduced to match more compact design

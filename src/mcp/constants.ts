@@ -60,9 +60,21 @@ export function graphApiVersionFromBeta(useGraphBeta?: boolean): 'beta' | 'v1.0'
 // specific to app-management intents to avoid hijacking ordinary Graph questions.
 export const LOKKA_APP_INTENTS: Array<{ tool: string; resourceUri: string; patterns: RegExp[] }> = [
   {
+    // Graph Explorer also auto-opens on Graph queries; these handle the explicit
+    // "open it now" command from the Help app (openMessage: "open lokka").
+    tool: 'open-graph-explorer',
+    resourceUri: 'ui://lokka/graph-explorer.html',
+    patterns: [
+      /\bopen\s+lokka\b/i,
+      /\bopen\s+(the\s+)?graph\s+explorer\b/i,
+      /\bopen\s+(the\s+)?(lokka\s+)?explorer\b/i,
+    ],
+  },
+  {
     tool: 'open-lokka-connections',
     resourceUri: 'ui://lokka/connections.html',
     patterns: [
+      /\blokka\s+sign[\s-]?in\b/i,           // Help app "Open it now" -> openMessage "lokka sign in"
       /\b(connection|tenant)\s+manager\b/i,
       /\bmanage\s+(my\s+)?(connections|tenants)\b/i,
       /\bmulti[-\s]?tenant\b/i,
@@ -75,6 +87,7 @@ export const LOKKA_APP_INTENTS: Array<{ tool: string; resourceUri: string; patte
     tool: 'open-lokka-permissions',
     resourceUri: 'ui://lokka/permissions.html',
     patterns: [
+      /\blokka\s+permissions\b/i,             // Help app "Open it now" -> openMessage "lokka permissions"
       /\bpermissions?\s+manager\b/i,
       /\bmanage\s+(my\s+)?permissions\b/i,
       /\breview\s+(my\s+)?(graph\s+)?permissions\b/i,

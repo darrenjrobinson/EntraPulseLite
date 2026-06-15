@@ -173,6 +173,34 @@ describe('McpAppFrame bridge', () => {
     expect(iframe.style.height).toBe('1400px'); // capped at MAX_HEIGHT
   });
 
+  it('forwards a copied prompt (entrapulse/prompt-copied) to onFillInput without sending', async () => {
+    const onFillInput = jest.fn();
+    const onSendMessage = jest.fn();
+    const { iframe } = await renderFrame({ onFillInput, onSendMessage });
+    await act(async () => {
+      messageFromIframe(iframe, { jsonrpc: '2.0', method: 'entrapulse/prompt-copied', params: { text: 'Show me all guest users' } });
+    });
+    expect(onFillInput).toHaveBeenCalledWith('Show me all guest users');
+    expect(onSendMessage).not.toHaveBeenCalled(); // fill only, user edits/sends
+  });
+
+  it('injects the clipboard-forward shim only for the Help app', async () => {
+    // Default test resource is the graph explorer -> no shim.
+    const { iframe } = await renderFrame();
+    expect(iframe.getAttribute('srcdoc')).not.toContain('entrapulse/prompt-copied');
+  });
+
+  it('injects the clipboard-forward shim when rendering the Help app', async () => {
+    const helpResource = { ...uiResource, resourceUri: 'ui://lokka/help.html' };
+    await act(async () => {
+      root = createRoot(container);
+      root.render(<McpAppFrame uiResource={helpResource} />);
+    });
+    await flush();
+    const iframe = container.querySelector('iframe[title^="mcp-app-"]') as HTMLIFrameElement;
+    expect(iframe.getAttribute('srcdoc')).toContain('entrapulse/prompt-copied');
+  });
+
   it('shows a subtle fallback message when the resource cannot be read', async () => {
     readResource.mockResolvedValue({ error: { code: -32603, message: 'nope' } });
     await act(async () => {

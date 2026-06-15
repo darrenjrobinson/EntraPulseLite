@@ -24,6 +24,8 @@ interface McpAppFrameProps {
   uiResource: McpUiResourceRef;
   /** Optional: called when the app sends a chat message via ui/message. */
   onSendMessage?: (text: string) => void;
+  /** Called when the app copies a prompt to the clipboard — used to drop it into the chat input for review/edit (Help app). */
+  onFillInput?: (text: string) => void;
 }
 
 interface JsonRpcMessage {
@@ -58,19 +60,28 @@ function buildCsp(meta: any): string {
   ].join('; ');
 }
 
-/** Inject a <meta http-equiv="Content-Security-Policy"> into the resource HTML <head>. */
-function withCsp(html: string, csp: string): string {
-  const tag = `<meta http-equiv="Content-Security-Policy" content="${csp}">`;
+// Some Lokka apps (the Help "welcome" app) offer sample prompts that copy to the clipboard
+// instead of sending a ui/message. This injected shim wraps navigator.clipboard.writeText so
+// the copied prompt is ALSO forwarded to the host, which drops it into the chat input for the
+// user to review/edit before sending. Scoped to apps without result/code copy buttons (Help)
+// so it doesn't hijack the chat input with unrelated copies.
+const CLIPBOARD_FORWARD_SCRIPT =
+  '<script>(function(){try{var c=navigator.clipboard;if(c&&c.writeText){var o=c.writeText.bind(c);' +
+  'c.writeText=function(t){try{window.parent.postMessage({jsonrpc:"2.0",method:"entrapulse/prompt-copied",params:{text:String(t)}},"*");}catch(e){}return o(t);};}}catch(e){}})();</script>';
+
+/** Inject the CSP meta (and optional extra head markup) into the resource HTML <head>. */
+function withCsp(html: string, csp: string, extraHead = ''): string {
+  const head = `<meta http-equiv="Content-Security-Policy" content="${csp}">${extraHead}`;
   if (/<head[^>]*>/i.test(html)) {
-    return html.replace(/<head[^>]*>/i, (m) => `${m}${tag}`);
+    return html.replace(/<head[^>]*>/i, (m) => `${m}${head}`);
   }
   if (/<html[^>]*>/i.test(html)) {
-    return html.replace(/<html[^>]*>/i, (m) => `${m}<head>${tag}</head>`);
+    return html.replace(/<html[^>]*>/i, (m) => `${m}<head>${head}</head>`);
   }
-  return `${tag}${html}`;
+  return `${head}${html}`;
 }
 
-export const McpAppFrame: React.FC<McpAppFrameProps> = ({ uiResource, onSendMessage }) => {
+export const McpAppFrame: React.FC<McpAppFrameProps> = ({ uiResource, onSendMessage, onFillInput }) => {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [html, setHtml] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -100,7 +111,10 @@ export const McpAppFrame: React.FC<McpAppFrameProps> = ({ uiResource, onSendMess
         const rawHtml: string | undefined = contents?.text;
         if (!rawHtml) throw new Error('UI resource returned no HTML.');
         const csp = buildCsp(contents?._meta ?? res?._meta);
-        if (!cancelled) setHtml(withCsp(rawHtml, csp));
+        // The Help app uses clipboard-copy for its sample prompts; forward those to the
+        // chat input. Other apps have result/code copy buttons, so don't inject there.
+        const extraHead = resourceUri === 'ui://lokka/help.html' ? CLIPBOARD_FORWARD_SCRIPT : '';
+        if (!cancelled) setHtml(withCsp(rawHtml, csp, extraHead));
       } catch (e) {
         if (!cancelled) setError((e as Error).message);
       }
@@ -209,6 +223,13 @@ export const McpAppFrame: React.FC<McpAppFrameProps> = ({ uiResource, onSendMess
           }
 
           // Notifications from the app (no reply expected).
+          case 'entrapulse/prompt-copied': {
+            // Injected clipboard shim (Help app): drop the copied prompt into the chat
+            // input so the user can review/edit before sending.
+            const text = msg.params?.text;
+            if (typeof text === 'string' && text.trim() && onFillInput) onFillInput(text);
+            return;
+          }
           case 'ui/notifications/initialized': {
             pushInitialData();
             return;
@@ -234,7 +255,7 @@ export const McpAppFrame: React.FC<McpAppFrameProps> = ({ uiResource, onSendMess
 
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
-  }, [serverId, postToIframe, pushInitialData, onSendMessage]);
+  }, [serverId, postToIframe, pushInitialData, onSendMessage, onFillInput]);
 
   const title = useMemo(() => {
     const map: Record<string, string> = {
@@ -273,6 +294,8 @@ export const McpAppFrame: React.FC<McpAppFrameProps> = ({ uiResource, onSendMess
           title={`mcp-app-${title}`}
           srcDoc={html}
           sandbox="allow-scripts allow-forms"
+          // Lokka apps request clipboardWrite (copy buttons); grant it via Permissions Policy.
+          allow="clipboard-write"
           style={{ width: '100%', height, border: 'none', display: 'block', background: '#fff' }}
         />
       ) : (

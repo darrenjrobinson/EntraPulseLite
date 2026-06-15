@@ -38,6 +38,17 @@ describe('graphApiVersionFromBeta', () => {
 });
 
 describe('detectLokkaAppIntent', () => {
+  it('routes the Help app "Open it now" commands to the matching app', () => {
+    expect(detectLokkaAppIntent('open lokka')).toEqual({ tool: 'open-graph-explorer', resourceUri: 'ui://lokka/graph-explorer.html' });
+    expect(detectLokkaAppIntent('lokka sign in')).toEqual({ tool: 'open-lokka-connections', resourceUri: 'ui://lokka/connections.html' });
+    expect(detectLokkaAppIntent('lokka permissions')).toEqual({ tool: 'open-lokka-permissions', resourceUri: 'ui://lokka/permissions.html' });
+    expect(detectLokkaAppIntent('lokka help')).toEqual({ tool: 'open-lokka-help', resourceUri: 'ui://lokka/help.html' });
+  });
+
+  it('routes "open graph explorer" to the explorer', () => {
+    expect(detectLokkaAppIntent('open the graph explorer')).toEqual({ tool: 'open-graph-explorer', resourceUri: 'ui://lokka/graph-explorer.html' });
+  });
+
   it('routes connection-management intents to open-lokka-connections', () => {
     for (const q of ['open the connection manager', 'manage my connections', 'add a tenant', 'switch to a different tenant', 'multi-tenant setup']) {
       expect(detectLokkaAppIntent(q)).toEqual({ tool: 'open-lokka-connections', resourceUri: 'ui://lokka/connections.html' });
