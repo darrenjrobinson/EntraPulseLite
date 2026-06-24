@@ -137,6 +137,21 @@ jobs:
             Write-Host "No Windows executables found in dist-release"
             Get-ChildItem "dist-release" -Recurse | Where-Object { $_.Name -like "*.exe" } | ForEach-Object { Write-Host "Found: $($_.FullName)" }
           }
+          # Upload auto-update metadata (latest.yml + blockmap) required by electron-updater
+          if (Test-Path "dist-release\*.yml") {
+            Write-Host "Found Windows update metadata:"
+            Get-ChildItem "dist-release\*.yml" | ForEach-Object { Write-Host "  $_" }
+            Get-ChildItem "dist-release\*.yml" | ForEach-Object {
+              gh release upload "${{ github.event.inputs.version }}" "$_" --clobber
+            }
+          } else {
+            Write-Host "WARNING: No latest.yml found in dist-release - auto-update will not work"
+          }
+          if (Test-Path "dist-release\*.blockmap") {
+            Get-ChildItem "dist-release\*.blockmap" | ForEach-Object {
+              gh release upload "${{ github.event.inputs.version }}" "$_" --clobber
+            }
+          }
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: powershell
@@ -197,6 +212,22 @@ jobs:
           else
             echo "No macOS ZIP files found in dist-release"
             find dist-release -name "*.zip" -type f
+          fi
+
+          # Upload auto-update metadata (latest-mac.yml + blockmap) required by electron-updater
+          if ls dist-release/*.yml 2>/dev/null; then
+            echo "Found macOS update metadata:"
+            ls -la dist-release/*.yml
+            for file in dist-release/*.yml; do
+              gh release upload "${{ github.event.inputs.version }}" "$file" --clobber
+            done
+          else
+            echo "WARNING: No latest-mac.yml found in dist-release - auto-update will not work"
+          fi
+          if ls dist-release/*.blockmap 2>/dev/null; then
+            for file in dist-release/*.blockmap; do
+              gh release upload "${{ github.event.inputs.version }}" "$file" --clobber
+            done
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -279,6 +310,17 @@ jobs:
           else
             echo "No Linux TAR.GZ files found in dist-release"
             find dist-release -name "*.tar.gz" -type f
+          fi
+
+          # Upload auto-update metadata (latest-linux.yml) required by electron-updater
+          if ls dist-release/*.yml 2>/dev/null; then
+            echo "Found Linux update metadata:"
+            ls -la dist-release/*.yml
+            for file in dist-release/*.yml; do
+              gh release upload "${{ github.event.inputs.version }}" "$file" --clobber
+            done
+          else
+            echo "WARNING: No latest-linux.yml found in dist-release - auto-update will not work"
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
