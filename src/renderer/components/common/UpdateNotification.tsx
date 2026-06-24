@@ -100,8 +100,16 @@ export const UpdateNotification: React.FC = () => {
             errorMessage = 'Update check failed - network or server error';
           }
         }
-        
-        showSnackbar(`Update error: ${errorMessage}`, 'error');
+
+        // Some "errors" from electron-updater are expected, benign states rather
+        // than real failures (no published releases yet, already up to date, or
+        // running an unpackaged dev build). Surface those as info, not a red error.
+        const isBenign = /no releases available|normal for development|latest version|up to date|not packed|dev update config/i.test(errorMessage);
+        if (isBenign) {
+          showSnackbar(errorMessage, 'info');
+        } else {
+          showSnackbar(`Update error: ${errorMessage}`, 'error');
+        }
       });
     }
 
