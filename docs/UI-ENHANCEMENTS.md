@@ -249,5 +249,3 @@ code: ({inline, className, children, ...props}) => {
 - [Main README](../README.md) - Overview and features
 - [Development Guide](DEVELOPMENT.md) - Implementation details
 - [Architecture Overview](ARCHITECTURE.md) - System architecture
-- [UI Enhancement Implementation](UI-ENHANCEMENT-COPY-CODE-NEW-CHAT.md) - Detailed implementation notes
-- [Testing Guide](scripts/test-ui-features.md) - Testing procedures

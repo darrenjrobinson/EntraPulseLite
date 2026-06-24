@@ -1,8 +1,9 @@
 // Unified LLM service that supports both local and cloud providers
-import { LLMConfig, ChatMessage } from '../types';
+import { LLMConfig, ChatMessage, MCPConfig } from '../types';
 import { LLMService } from './LLMService';
 import { CloudLLMService } from './CloudLLMService';
 import { MCPClient } from '../mcp/clients';
+import { MCPQueryRouter, RoutingDecision } from '../mcp/routing/MCPQueryRouter';
 
 // Regular expression for extracting Graph API queries from LLM responses
 const EXECUTE_QUERY_REGEX = /<execute_query>([\s\S]*?)<\/execute_query>/g;
@@ -11,9 +12,13 @@ export class UnifiedLLMService {
   private localService?: LLMService;
   private cloudService?: CloudLLMService | null;
   private config: LLMConfig;
-  private mcpClient?: MCPClient;  constructor(config: LLMConfig, mcpClient?: MCPClient) {
+  private mcpClient?: MCPClient;
+  private mcpConfig?: MCPConfig;
+
+  constructor(config: LLMConfig, mcpClient?: MCPClient, mcpConfig?: MCPConfig) {
     this.config = config;
     this.mcpClient = mcpClient;
+    this.mcpConfig = mcpConfig;
     
     console.log(`[UnifiedLLMService] Constructor called with provider: ${config.provider}`);
     console.log(`[UnifiedLLMService] Config has cloudProviders:`, !!config.cloudProviders);
@@ -120,42 +125,89 @@ export class UnifiedLLMService {
         }
         
         // Ensure method is lowercase and defaults to 'get'
-        const method = (query.method || 'get').toLowerCase();        // Execute query via Lokka MCP
+        const method = (query.method || 'get').toLowerCase();
         console.log(`Executing Graph API query: ${method.toUpperCase()} ${query.endpoint}`);
-        
-        // Try external-lokka first (if available), then fall back to lokka
-        let serverName = 'external-lokka';
-        let toolName = 'microsoft_graph_query';
-          // Check if external-lokka server is available
+
+        // Determine which MCP server to use based on query routing
         const availableServers = this.mcpClient!.getAvailableServerNames();
         console.log('🔧 UnifiedLLMService: Available MCP servers:', availableServers);
-        
-        if (!availableServers.includes('external-lokka')) {
-          console.log('🔧 UnifiedLLMService: External-lokka not available, trying lokka server');
-          serverName = 'external-lokka';
-          toolName = 'microsoft_graph_query';
-        }
-        
-        console.log(`🔧 UnifiedLLMService: Using MCP server: ${serverName}, tool: ${toolName}`);
-          // Convert query parameters to strings as required by Lokka MCP
-        const queryParams = query.params || query.queryParams;
-        const stringifiedQueryParams = queryParams ? 
-          Object.fromEntries(
-            Object.entries(queryParams).map(([key, value]) => [
-              key, 
-              typeof value === 'string' ? value : String(value)
-            ])
-          ) : undefined;
 
-        const rawResult = await this.mcpClient!.callTool(serverName, toolName, {
-          apiType: 'graph',
-          method: method,
-          path: query.endpoint, // Note: external Lokka uses 'path' instead of 'endpoint'
-          queryParams: stringifiedQueryParams
-        });
-        
-        console.log('Lokka MCP response received, type:', typeof rawResult);
-        console.log('Lokka MCP response keys:', rawResult ? Object.keys(rawResult) : 'null');
+        let serverName: string;
+        let toolName: string;
+        let routingDecision: RoutingDecision | null = null;
+
+        // Use MCPQueryRouter if MCP config is available
+        if (this.mcpConfig) {
+          const routingConfig = {
+            lokkaEnabled: this.mcpConfig.lokka?.enabled || availableServers.includes('external-lokka'),
+            microsoftMcpEnabled: this.mcpConfig.microsoftEnterprise?.enabled || false
+          };
+
+          // Get user's original query from messages to help with routing
+          const userQuery = messages.find(m => m.role === 'user')?.content || query.endpoint;
+
+          routingDecision = MCPQueryRouter.routeQuery(userQuery, routingConfig);
+          console.log('🧭 UnifiedLLMService: Routing decision:', {
+            server: routingDecision.server,
+            reason: routingDecision.reason,
+            confidence: routingDecision.confidence
+          });
+
+          if (routingDecision.server === 'microsoft-enterprise' &&
+              availableServers.includes('microsoft-enterprise')) {
+            serverName = 'microsoft-enterprise';
+            toolName = 'microsoft_graph_get';
+            console.log('✅ UnifiedLLMService: Routing to Microsoft Enterprise MCP');
+          } else if (routingDecision.server === 'lokka' || routingDecision.server === null) {
+            // Use Lokka (external-lokka preferred)
+            serverName = availableServers.includes('external-lokka') ? 'external-lokka' : 'lokka';
+            toolName = 'Lokka-Microsoft';
+            console.log('✅ UnifiedLLMService: Routing to Lokka MCP');
+          } else {
+            // Fallback to external-lokka if routing failed
+            serverName = availableServers.includes('external-lokka') ? 'external-lokka' : 'lokka';
+            toolName = 'Lokka-Microsoft';
+            console.log('⚠️  UnifiedLLMService: Routing failed, falling back to Lokka');
+          }
+        } else {
+          // Legacy behavior: prefer external-lokka
+          serverName = availableServers.includes('external-lokka') ? 'external-lokka' : 'lokka';
+          toolName = 'Lokka-Microsoft';
+          console.log('ℹ️  UnifiedLLMService: No MCP config, using default Lokka routing');
+        }
+
+        console.log(`🔧 UnifiedLLMService: Using MCP server: ${serverName}, tool: ${toolName}`);
+
+        // Prepare parameters based on which server we're using
+        let rawResult: any;
+
+        if (serverName === 'microsoft-enterprise') {
+          // Microsoft Enterprise MCP uses MCP protocol with microsoft_graph_get tool
+          // The tool expects just the Graph API URL path, method is always GET
+          rawResult = await this.mcpClient!.callTool(serverName, toolName, {
+            url: query.endpoint
+          });
+          console.log('Microsoft Enterprise MCP response received');
+        } else {
+          // Lokka MCP parameters
+          const queryParams = query.params || query.queryParams;
+          const stringifiedQueryParams = queryParams ?
+            Object.fromEntries(
+              Object.entries(queryParams).map(([key, value]) => [
+                key,
+                typeof value === 'string' ? value : String(value)
+              ])
+            ) : undefined;
+
+          rawResult = await this.mcpClient!.callTool(serverName, toolName, {
+            apiType: 'graph',
+            method: method,
+            path: query.endpoint,
+            queryParams: stringifiedQueryParams
+          });
+          console.log('Lokka MCP response received, type:', typeof rawResult);
+          console.log('Lokka MCP response keys:', rawResult ? Object.keys(rawResult) : 'null');
+        }
         
         hasExecutedQueries = true;
         

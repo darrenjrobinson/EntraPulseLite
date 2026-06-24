@@ -11,7 +11,8 @@ jobs:
     
     strategy:
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
+        # windows-2022 (VS2022): windows-latest (VS2026) breaks node-gyp native builds
+        os: [windows-2022, macos-latest, ubuntu-latest]
 
     steps:
       - name: Check out Git repository
@@ -20,7 +21,7 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
           cache: 'npm'
 
       - name: Install dependencies
@@ -35,17 +36,26 @@ jobs:
       - name: Build Electron app
         run: npm run build
 
-      - name: Release Electron app
-        uses: samuelmeuli/action-electron-builder@v1
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          release: true
-          max_attempts: 3
+      - name: Build and Release (Windows)
+        if: matrix.os == 'windows-2022'
+        run: npx electron-builder --win --publish always
         env:
-          # Windows code signing (optional for beta)
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          # macOS code signing (optional for beta)
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+
+      - name: Build and Release (macOS)
+        if: matrix.os == 'macos-latest'
+        run: npx electron-builder --mac --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: false
-          # Publish to GitHub releases
+          # Skip code signing for macOS when no certificate is available
+          MAC_CSC_LINK: ""
+          MAC_CSC_KEY_PASSWORD: ""
+
+      - name: Build and Release (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: npx electron-builder --linux --publish always
+        env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

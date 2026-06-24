@@ -8,6 +8,7 @@ A free community desktop application that provides natural language querying of 
 
 - **Enhanced Graph Access**: Uses Microsoft Graph PowerShell client ID for comprehensive delegated permissions
 - **Custom Application Support**: Use your own Entra App Registration with delegated permissions for tailored access  
+- **Tenant Profiles**: Save app registration settings per customer tenant and switch between tenants with one click - built for Managed Services teams
 - **Dual Authentication Modes**: Switch between Enhanced Graph Access and Custom Application modes at runtime
 - **Flexible Browser Authentication**: Choose between embedded browser or system browser for authentication compliance
 - **Work or School Microsoft Account**: Secure login with MSAL integration
@@ -15,10 +16,12 @@ A free community desktop application that provides natural language querying of 
 - **Multi-Provider LLM Integration**: Works with local (Ollama, LM Studio) and cloud (OpenAI, Anthropic, Google Gemini, Azure OpenAI) AI models
 - **Real-time LLM Status Monitoring**: Dynamic tracking of LLM availability with automatic UI updates
 - **Automatic Updates**: Seamless updates delivered through GitHub Releases with code signing and user control
-- **Built-in MCP Servers**: 
-  - Lokka MCP using the official @merill/lokka package for Microsoft Graph API access
+- **Built-in MCP Servers** (Recommended: Enable Both for Best Coverage): 
+  - **Lokka MCP** using the official @merill/lokka package (v2.0.0) - Fast, privacy-first Microsoft Graph and Azure Resource Manager API access for common queries, with **interactive MCP apps** (Graph Explorer, Connections, Permissions, Help) rendered inline in chat
+  - **Microsoft Enterprise MCP** (Cloud) - Enterprise features: Audit Logs, PIM, Conditional Access, Device Compliance
   - Microsoft Docs MCP using the official MicrosoftDocs/MCP package for Microsoft Learn documentation and official Microsoft documentation
   - Fetch MCP for general web searches and documentation retrieval
+- **Intelligent Query Routing**: Auto-routing between Lokka (simple queries) and Microsoft Enterprise MCP (enterprise queries) based on query complexity
 - **Chat Interface**: Modern UI with trace visualization, permission management, code copy functionality, and conversation context management
 - **Enhanced User Experience**: Copy code blocks with one click, start new conversations to clear context
 - **Free Community Tool**: Enhanced Graph Access mode requires no App Registration setup
@@ -115,7 +118,7 @@ For optimal performance and reliability, we recommend using cloud-based AI provi
 1. Visit [Anthropic Console](https://console.anthropic.com)
 2. Create an account and generate an API key
 3. In EntraPulse Lite Settings → LLM Configuration → Add Claude Sonnet
-4. Enter your API key and select Update then select the `claude-sonnet-4-20250514` model
+4. Enter your API key and select Update then select the `claude-sonnet-4-6` model
 
 #### Option 2: Azure OpenAI GPT-4o (Enterprise)
 1. Access your Azure OpenAI resource in the Azure Portal
@@ -168,6 +171,15 @@ EntraPulse Lite uses delegated permissions exclusively for secure, user-context 
 
 You can switch between modes in Settings → Entra Application Settings.
 
+### Tenant Profiles (Consultants / Managed Services)
+
+Consultants / Managed Services teams that work across many customer tenants can save the Entra settings for each tenant as a named **Tenant Profile**:
+
+- **Settings → Entra Application Settings → Tenant Profiles** - add, rename, or remove profiles; each captures the Client ID, Tenant ID, authentication options, and per-tenant MCP settings (Microsoft Enterprise MCP, Lokka Graph beta endpoint)
+- **Switching profiles** signs you out of the current tenant, clears cached tokens, reconfigures the MCP servers for the new tenant, and prompts you to sign in
+- The **active profile name** is shown in the chat header so you always know which tenant you're working in
+- Existing configurations are migrated automatically into a "Default" profile
+
 ### Browser Authentication Modes
 EntraPulse Lite supports flexible authentication flows to accommodate different organizational security requirements:
 
@@ -190,7 +202,7 @@ You can toggle between browser modes in Settings → Entra Application Settings 
 
 ### Multi-Provider LLM Support
 **Cloud Providers** (Recommended):
-- Anthropic Claude Sonnet (Claude 3.5 Sonnet)
+- Anthropic Claude (Claude Sonnet 4.6, Claude Opus 4.8)
 - Azure OpenAI (Enterprise-grade GPT-4o, GPT-4, GPT-3.5)
 - OpenAI (GPT-4, GPT-3.5)
 - Google Gemini
@@ -198,6 +210,128 @@ You can toggle between browser modes in Settings → Entra Application Settings 
 **Local Providers** (Privacy-focused):
 - Ollama
 - LM Studio
+
+### MCP Server Configuration (Recommended Setup)
+
+> **💡 Best Practice: Enable Both Lokka MCP AND Microsoft Enterprise MCP**
+>
+> For the best experience, we strongly recommend enabling **both** MCP servers. They complement each other:
+> - **Lokka MCP** handles simple, everyday queries quickly and privately
+> - **Microsoft Enterprise MCP** provides access to advanced enterprise features
+
+#### Lokka MCP (Simple Queries - Privacy-First)
+Lokka MCP is ideal for common Microsoft Graph queries:
+- **Users & Groups** - List users, group memberships, user profiles
+- **Applications** - App registrations, service principals, permissions
+- **Directory Objects** - Organizational units, domains, directory roles
+- **Mail & Calendar** - Messages, events, contacts (with appropriate permissions)
+- **Azure Resources** (Lokka v2) - Query Azure Resource Manager APIs such as subscriptions and resource configurations
+- **Graph API version control** (Lokka v2) - Defaults to the **stable v1.0 Graph endpoint** for leaner responses (fewer properties). Enable beta only when you need preview-only data via **Settings → MCP Server Configuration → Lokka: use Graph beta endpoint** (or `useGraphBeta: true`). Changing this reconnects Lokka and prompts you to sign in again. The Graph Explorer's version selector reflects the version actually used.
+
+#### Interactive MCP Apps (Lokka v2)
+
+EntraPulse Lite supports **all four** of Lokka 2.0's interactive **MCP Apps**, rendered **inline in chat** so you can explore results visually instead of reading raw JSON:
+
+- **Graph Explorer** - auto-opens on any Graph query. Shows the exact request (method, API version, path, query parameters) and the results as sortable tables or JSON, and lets you tweak and re-run the query. Compact by default; expands when you open the query.
+- **Multi-Tenant Connection Manager** - sign into one or more tenants (as a user or service principal) and switch the active connection. Open it by asking, e.g. *"open the connection manager"*, *"add a tenant"*, *"switch to a different tenant"*.
+- **Permissions Manager** - review the Graph scopes on your current token and search the full permission catalog. Open it with, e.g. *"open the permissions manager"*, *"review my permissions"*, *"what scopes do I have"*.
+- **Visual Help** - a guided tour of what Lokka can do. Open it with, e.g. *"what can Lokka do?"* or *"show me the Lokka help"*.
+
+The Connections, Permissions, and Help apps open automatically when your request matches one of those intents; otherwise queries run normally and the Graph Explorer is shown.
+
+How it works and how it stays secure:
+- Apps run in a **sandboxed iframe** (`allow-scripts`, no same-origin) with a per-app **Content-Security-Policy** derived from the app's manifest. Only the official SDK transport serves these `ui://` resources.
+- **EntraPulse Lite keeps owning authentication.** UI-initiated tool calls pass through a policy gate: read/display calls are allowed, while **auth-mutating actions** (sign-in, add user/service-principal connection, grant consent) are **blocked** and you're pointed to EntraPulse Lite's own auth settings.
+- Toggle inline rendering with **Settings → MCP Server Configuration → Enable interactive MCP apps** (default **on**). When off, results render as text/JSON only — the text answer is always present as a fallback.
+- Interactive apps require a signed-in Lokka connection (the SDK transport). If that's unavailable, the app degrades quietly to the text answer.
+
+#### Microsoft Enterprise MCP Server (Complex Enterprise Queries)
+
+The Microsoft Enterprise MCP Server provides access to enterprise-grade Microsoft Graph features that require MCP-specific permissions:
+
+**Enterprise Features:**
+- **Audit Logs** - Sign-in logs, directory audit logs, and security events
+- **Privileged Identity Management (PIM)** - Role assignments and eligible roles
+- **Conditional Access** - Policy configurations and compliance status
+- **Device Compliance** - Intune device status and compliance policies
+
+**Intelligent Query Routing:**
+When both Lokka MCP and Microsoft Enterprise MCP are enabled (recommended), queries are automatically routed:
+- Simple queries (users, groups, applications) → **Lokka MCP** (fast, privacy-first)
+- Enterprise queries (audit logs, PIM, compliance) → **Microsoft Enterprise MCP** (cloud)
+
+#### Prerequisites for Microsoft Enterprise MCP
+
+1. **Admin Role** - You must have one of these Entra ID roles:
+   - Global Administrator
+   - Cloud Application Administrator
+
+2. **PowerShell** - Either:
+   - Windows PowerShell (included with Windows)
+   - PowerShell Core (`pwsh`) on macOS/Linux
+
+3. **Microsoft.Entra.Beta PowerShell Module**
+
+#### Enabling Microsoft Enterprise MCP
+
+**Step 1: Install the Microsoft.Entra.Beta PowerShell Module**
+```powershell
+Install-Module Microsoft.Entra.Beta -Force -AllowClobber
+```
+
+**Step 2: Connect to your Entra tenant with required scopes**
+```powershell
+Connect-Entra -Scopes 'Application.ReadWrite.All', 'Directory.Read.All', 'DelegatedPermissionGrant.ReadWrite.All'
+```
+This will open a browser for interactive authentication.
+
+**Step 3: Grant MCP Server permissions**
+```powershell
+Grant-EntraBetaMCPServerPermission -ApplicationName 'ChatGPT'
+```
+
+> **Note:** The cmdlet only accepts pre-registered MCP client applications: `VisualStudioCode`, `VisualStudio`, `ChatGPT`, or `Claude`. Using any of these grants the MCP permissions at the tenant level, which EntraPulse Lite can then leverage when connecting to the Microsoft Enterprise MCP server.
+
+**Step 4: Enable in EntraPulse Lite**
+1. Open Settings → MCP Server Configuration
+2. Toggle "Enable Microsoft Enterprise MCP" to ON
+3. The app will now route enterprise queries to the Microsoft MCP server
+
+> **Reference:** [Microsoft Graph MCP Server Documentation](https://learn.microsoft.com/en-us/graph/mcp-server/get-started)
+
+#### Verifying MCP Permissions (Troubleshooting)
+
+To confirm the MCP permissions were granted correctly:
+
+```powershell
+# Get your app's Service Principal (replace with your Client ID)
+$appSp = Get-EntraBetaServicePrincipal -Filter "appId eq '<your-client-id>'"
+
+# Check OAuth2 permission grants
+$grants = Get-EntraBetaServicePrincipalOAuth2PermissionGrant -ServicePrincipalId $appSp.Id
+
+# View granted scopes (should include MCP.* permissions)
+$grants.Scope
+```
+
+**Expected MCP scopes** after running `Grant-EntraBetaMCPServerPermission`:
+- `MCP.AuditLog.Read.All`
+- `MCP.Policy.Read.ConditionalAccess`
+- `MCP.RoleManagement.Read.Directory`
+- `MCP.User.Read.All`
+
+#### Licensing Requirements
+
+Some Microsoft Enterprise MCP features require specific Entra ID licenses:
+
+| Feature | Required License |
+|---------|-----------------|
+| Audit Logs (Sign-ins) | Entra ID P1 or P2 |
+| Privileged Identity Management | Entra ID P2 |
+| Conditional Access | Entra ID P1 or P2 |
+| Identity Protection | Entra ID P2 |
+
+If you receive a `403 Forbidden` error with message `Authentication_RequestFromNonPremiumTenantOrB2CTenant`, your tenant does not have the required premium license for that feature.
 
 ### Natural Language Queries
 Ask questions in plain English:

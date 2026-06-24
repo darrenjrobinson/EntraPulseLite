@@ -112,7 +112,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
       }),
       ...(provider === 'anthropic' && {
         baseUrl: undefined,
-        model: 'claude-3-5-sonnet-20241022',
+        model: 'claude-sonnet-4-6',
         apiKey: config.apiKey || '',
         organization: undefined
       }),
@@ -309,8 +309,8 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
                         onChange={(e) => setConfig({ ...config, model: e.target.value })}
                         placeholder={
                           config.provider === 'openai' 
-                            ? 'gpt-4o-mini' 
-                            : 'claude-3-5-sonnet-20241022'
+                            ? 'gpt-4o-mini'
+                            : 'claude-sonnet-4-6'
                         }
                         helperText={
                           isCloudProvider && !config.apiKey 

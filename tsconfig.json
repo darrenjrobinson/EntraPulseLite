@@ -25,7 +25,9 @@
       "@/shared/*": ["shared/*"],
       "@/types/*": ["types/*"],
       "react-markdown": ["types/react-markdown-patch.d.ts"],
-      "react-markdown/*": ["types/react-markdown-patch.d.ts"]
+      "react-markdown/*": ["types/react-markdown-patch.d.ts"],
+      "@modelcontextprotocol/sdk/client/index.js": ["../node_modules/@modelcontextprotocol/sdk/dist/cjs/client/index.d.ts"],
+      "@modelcontextprotocol/sdk/client/stdio.js": ["../node_modules/@modelcontextprotocol/sdk/dist/cjs/client/stdio.d.ts"]
     },
     "types": ["node", "jest", "react", "react-dom"],
     "typeRoots": ["./node_modules/@types", "./src/types"]

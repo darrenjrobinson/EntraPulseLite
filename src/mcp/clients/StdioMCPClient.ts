@@ -3,6 +3,7 @@
 
 import { spawn, ChildProcess } from 'child_process';
 import { MCPServerConfig } from '../types';
+import { VERSION } from '../../shared/version';
 
 export interface MCPJSONRPCRequest {
   id: string | number;
@@ -226,7 +227,7 @@ export class StdioMCPClient {
       },
       clientInfo: {
         name: 'EntraPulseLite',
-        version: '1.0.1'
+        version: VERSION
       }
     });
 

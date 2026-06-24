@@ -1,6 +1,7 @@
 // MCP Client exports
 
-import { MCPClient } from './MCPSDKClient';
+// Use the real MCPClient implementation (not the SDK mock)
+import { MCPClient } from './MCPClient';
 
 export { 
   MCPClient

@@ -1,7 +1,7 @@
 {
   "name": "entrapulselite",
   "productName": "EntraPulse Lite",
-  "version": "1.0.1",
+  "version": "1.3.1",
   "description": "A freemium desktop application for natural language querying of Microsoft Graph APIs through local LLM integration",
   "main": "dist/main.js",
   "homepage": "https://github.com/darrenjrobinson/EntraPulseLite",
@@ -36,7 +36,7 @@
     "version:patch": "npm version patch",
     "version:minor": "npm version minor",
     "version:major": "npm version major",
-    "security:check": "npm audit --audit-level=moderate && echo 'Security check passed'",
+    "security:check": "npm audit --audit-level=critical && echo 'Security check passed'",
     "pre-release": "npm run test && npm run security:check && npm run build",
     "build:release": "npm run build && electron-builder",
     "build:sign": "cross-env PATH=\"C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.22621.0\\x64;%PATH%\" electron-builder",
@@ -94,11 +94,15 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "portable",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "assets/icon.ico",
@@ -117,11 +121,17 @@
       "target": [
         {
           "target": "dmg",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         },
         {
           "target": "zip",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         }
       ],
       "icon": "assets/icon.png",
@@ -131,19 +141,27 @@
       "target": [
         {
           "target": "AppImage",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "deb",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "rpm",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "tar.gz",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "assets/icon.png",
@@ -159,7 +177,7 @@
     "@azure/msal-node": "^3.6.0",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.0",
-    "@merill/lokka": "^0.2.0",
+    "@merill/lokka": "2.0.0",
     "@microsoft/mgt-components": "^4.6.0",
     "@microsoft/mgt-element": "^4.6.0",
     "@microsoft/mgt-react": "^4.6.0",
@@ -199,7 +217,6 @@
     "buffer": "^6.0.3",
     "copy-webpack-plugin": "^13.0.0",
     "cross-env": "^7.0.3",
-    "crypto-browserify": "^3.12.1",
     "css-loader": "^7.1.2",
     "dotenv": "^16.4.7",
     "electron": "^36.4.0",

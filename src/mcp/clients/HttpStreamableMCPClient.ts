@@ -1,6 +1,7 @@
 // HTTP Streamable MCP Client for communicating with MCP servers over HTTP
 import { MCPServerConfig } from '../types';
 import { MCPAuthService } from '../auth/MCPAuthService';
+import { VERSION } from '../../shared/version';
 
 export interface JsonRpcRequest {
   jsonrpc: string;
@@ -50,7 +51,7 @@ export class HttpStreamableMCPClient {
           },
           clientInfo: {
             name: 'EntraPulseLite',
-            version: '1.0.1'
+            version: VERSION
           }
         }
       };
@@ -160,7 +161,7 @@ export class HttpStreamableMCPClient {
     try {      const headers: Record<string, string> = {
         'Content-Type': 'application/json',
         'Accept': 'application/json, text/event-stream',
-        'User-Agent': 'MCP-Client/1.0.1'
+        'User-Agent': `MCP-Client/${VERSION}`
       };
 
       // Add session ID if we have one

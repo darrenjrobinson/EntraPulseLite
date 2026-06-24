@@ -43,17 +43,17 @@ describe('GuestAccountAnalyzer', () => {
       // Verify MCP client was called correctly
       expect(mockMcpClient.callTool).toHaveBeenCalledWith(
         'external-lokka',
-        'microsoft_graph_query',
+        'Lokka-Microsoft',
         expect.objectContaining({
-          endpoint: '/users/$count'
+          path: '/users/$count'
         })
       );
       
       expect(mockMcpClient.callTool).toHaveBeenCalledWith(
         'external-lokka',
-        'microsoft_graph_query',
+        'Lokka-Microsoft',
         expect.objectContaining({
-          endpoint: '/users/$count',
+          path: '/users/$count',
           queryParams: {
             '$filter': "userType eq 'Guest'"
           }
@@ -108,7 +108,7 @@ describe('GuestAccountAnalyzer', () => {
       // Verify MCP client was called correctly
       expect(mockMcpClient.callTool).toHaveBeenCalledWith(
         'external-lokka',
-        'microsoft_graph_query',
+        'Lokka-Microsoft',
         expect.objectContaining({
           apiType: 'graph',
           queryParams: expect.objectContaining({
@@ -148,7 +148,7 @@ describe('GuestAccountAnalyzer', () => {
       // Verify MCP client was called with correct domain filter
       expect(mockMcpClient.callTool).toHaveBeenCalledWith(
         'external-lokka',
-        'microsoft_graph_query',
+        'Lokka-Microsoft',
         expect.objectContaining({
           queryParams: expect.objectContaining({
             '$filter': expect.stringContaining("endsWith(mail, '@contoso.com')")

@@ -37,7 +37,15 @@ import StarBorderIcon from '@mui/icons-material/StarBorder';
 import CloudIcon from '@mui/icons-material/Cloud';
 import ComputerIcon from '@mui/icons-material/Computer';
 import UpdateIcon from '@mui/icons-material/Update';
-import { LLMConfig, CloudLLMProviderConfig, EntraConfig } from '../../types';
+import SecurityIcon from '@mui/icons-material/Security';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import AddIcon from '@mui/icons-material/Add';
+import EditIcon from '@mui/icons-material/Edit';
+import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
+import BusinessIcon from '@mui/icons-material/Business';
+import { LLMConfig, CloudLLMProviderConfig, EntraConfig, MCPConfig, TenantProfile } from '../../types';
+import { eventManager } from '../../shared/EventManager';
+import { mcpToggleRequiresReauth, MCP_ENDPOINT_REAUTH_NOTE } from '../../shared/mcpSettings';
 
 interface EnhancedSettingsDialogProps {
   open: boolean;
@@ -179,13 +187,27 @@ export const EnhancedSettingsDialog: React.FC<EnhancedSettingsDialogProps> = ({
     error?: string;
   }>({ loading: false });
 
+  // Tenant profile state
+  const [tenantProfiles, setTenantProfiles] = useState<TenantProfile[]>([]);
+  const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
+  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
+
+  // MCP Configuration state
+  const [mcpConfig, setMcpConfig] = useState<MCPConfig>({
+    lokka: { enabled: true, authMode: 'enhanced-graph-access', useGraphPowerShell: true },
+    fetch: { enabled: true },
+    microsoftDocs: { enabled: true },
+    microsoftEnterprise: { enabled: false, grantedScopes: [] }
+  });
+  const [isLoadingMcpConfig, setIsLoadingMcpConfig] = useState(false);
+
   // Utility functions
   const getDefaultModel = (provider: 'openai' | 'anthropic' | 'gemini' | 'azure-openai'): string => {
     switch (provider) {
       case 'openai': return 'gpt-4o-mini';
-      case 'anthropic': return 'claude-sonnet-4-20250514';
-      case 'gemini': return 'gemini-1.5-pro';
-      case 'azure-openai': return 'gpt-35-turbo';
+      case 'anthropic': return 'claude-sonnet-4-6';
+      case 'gemini': return 'gemini-2.5-flash';
+      case 'azure-openai': return 'gpt-4o';
       default: return 'gpt-4o-mini';
     }
   };
@@ -206,35 +228,35 @@ export const EnhancedSettingsDialog: React.FC<EnhancedSettingsDialogProps> = ({
     switch (provider) {
       case 'openai':
         return [
+          'gpt-5',
+          'gpt-5-mini',
           'gpt-4o',
-          'gpt-4o-mini', 
-          'gpt-4-turbo',
-          'gpt-4',
-          'gpt-3.5-turbo'
+          'gpt-4o-mini',
+          'gpt-4-turbo'
         ];
       case 'anthropic':
         return [
-          'claude-sonnet-4-20250514',      // Latest Claude 4 Sonnet (June 2025)
-          'claude-3-5-sonnet-20241022',
-          'claude-3-5-haiku-20241022',
-          'claude-3-opus-20240229',
-          'claude-3-sonnet-20240229',
-          'claude-3-haiku-20240307'
+          'claude-opus-4-8',
+          'claude-opus-4-7',
+          'claude-opus-4-6',
+          'claude-sonnet-4-6',
+          'claude-sonnet-4-5',
+          'claude-opus-4-5',
+          'claude-haiku-4-5'
         ];
       case 'gemini':
         return [
+          'gemini-2.5-pro',
+          'gemini-2.5-flash',
           'gemini-1.5-pro',
-          'gemini-1.5-flash',
-          'gemini-1.0-pro',
-          'gemini-pro',
-          'gemini-pro-vision'
+          'gemini-1.5-flash'
         ];
       case 'azure-openai':
         return [
+          'gpt-5',
           'gpt-4o',
           'gpt-4o-mini',
           'gpt-4-turbo',
-          'gpt-4',
           'gpt-35-turbo'
         ];
       default:
@@ -258,10 +280,12 @@ export const EnhancedSettingsDialog: React.FC<EnhancedSettingsDialogProps> = ({
     return defaultModel;
   };
 
-  const loadGraphPermissions = async () => {
-    // Throttle calls to prevent rapid successive calls
+  const loadGraphPermissions = async (force = false) => {
+    // Throttle calls to prevent rapid successive calls. A profile switch /
+    // sign-in passes force=true so the panel never shows the previous
+    // tenant's permissions just because the last load was <30s ago.
     const now = Date.now();
-    if (now - lastGraphPermissionsLoadRef.current < 30000) { // 30 second minimum between calls (increased from 10)
+    if (!force && now - lastGraphPermissionsLoadRef.current < 30000) { // 30 second minimum between calls
       console.log('🔄 Skipping graph permissions load - too soon since last attempt');
       return;
     }
@@ -420,10 +444,40 @@ export const EnhancedSettingsDialog: React.FC<EnhancedSettingsDialogProps> = ({
     if (open) {
       loadCloudProviders();
       loadEntraConfig();
-      loadGraphPermissions();
+      loadTenantProfiles();
+      loadMcpConfig();
+      loadGraphPermissions(true); // force - bypass throttle so a recent load for another tenant can't mask this one
       loadTenantInfo();
     }
   }, [open]); // Only reload when dialog opens, not on every config change
+
+  // Refresh permissions + tenant info when the active tenant profile changes
+  // or auth state changes (e.g. after a profile switch + sign-in), so the
+  // panel reflects the new tenant rather than the previous one's cached data
+  useEffect(() => {
+    const electronAPI = window.electronAPI as any;
+    if (!electronAPI?.on) return;
+
+    const handleTenantContextChanged = () => {
+      console.log('🔄 Tenant/auth context changed - force-refreshing permissions and tenant info');
+      // Clear stale permissions immediately so the previous tenant's list
+      // cannot linger on screen while the new data loads
+      setGraphPermissions({ granted: [], available: [], loading: true });
+      setTenantInfo({ loading: true });
+      // Small delay to let the new token settle after sign-in
+      setTimeout(() => {
+        loadGraphPermissions(true);
+        loadTenantInfo();
+      }, 1000);
+    };
+
+    eventManager.addEventListener('profiles:activeChanged', handleTenantContextChanged, 'EnhancedSettingsDialog', electronAPI);
+    eventManager.addEventListener('auth-status-changed', handleTenantContextChanged, 'EnhancedSettingsDialog', electronAPI);
+    return () => {
+      eventManager.removeEventListener('profiles:activeChanged', 'EnhancedSettingsDialog', electronAPI);
+      eventManager.removeEventListener('auth-status-changed', 'EnhancedSettingsDialog', electronAPI);
+    };
+  }, []);
 
   // Listen for authentication state changes and reload tenant info
   useEffect(() => {
@@ -576,6 +630,70 @@ export const EnhancedSettingsDialog: React.FC<EnhancedSettingsDialogProps> = ({
     }
   };
 
+  const loadTenantProfiles = async () => {
+    try {
+      const electronAPI = window.electronAPI as any;
+      const result = await electronAPI.config.getTenantProfiles();
+      const profiles: TenantProfile[] = result?.profiles || [];
+      setTenantProfiles(profiles);
+      setActiveProfileId(result?.activeProfileId || null);
+      setSelectedProfileId(prev =>
+        prev && profiles.some(p => p.id === prev)
+          ? prev
+          : (result?.activeProfileId || profiles[0]?.id || null)
+      );
+      console.log(`📋 [TenantProfiles] Loaded ${profiles.length} profiles, active: ${result?.activeProfileId || 'none'}`);
+    } catch (error) {
+      console.error('❌ Failed to load tenant profiles:', error);
+    }
+  };
+
+  const loadMcpConfig = async () => {
+    try {
+      setIsLoadingMcpConfig(true);
+      const electronAPI = window.electronAPI as any;
+      const config = await electronAPI.config.getMCPConfig();
+      setMcpConfig(config);
+      console.log('📋 [MCPConfig] Loaded MCP config:', config);
+    } catch (error) {
+      console.error('❌ Failed to load MCP config:', error);
+      // Keep default config on error
+    } finally {
+      setIsLoadingMcpConfig(false);
+    }
+  };
+
+  const handleMcpConfigChange = async (newConfig: MCPConfig) => {
+    try {
+      console.log('🔄 Saving MCP config:', newConfig);
+      const electronAPI = window.electronAPI as any;
+      
+      // Optimistically update UI immediately for responsiveness
+      setMcpConfig(newConfig);
+      
+      // Save to backend (which also reinitializes services)
+      await electronAPI.config.saveMCPConfig(newConfig);
+      console.log('✅ MCP config saved successfully');
+      
+      // Reload config from backend to ensure UI reflects actual state
+      // This is important because reinitializeServices() may modify config
+      const savedConfig = await electronAPI.config.getMCPConfig();
+      console.log('🔄 Reloaded MCP config from backend:', savedConfig);
+      setMcpConfig(savedConfig);
+    } catch (error) {
+      console.error('❌ Failed to save MCP config:', error);
+      alert('Failed to save MCP configuration. Please try again.');
+      // Reload original config on error to restore UI state
+      try {
+        const electronAPI = window.electronAPI as any;
+        const originalConfig = await electronAPI.config.getMCPConfig();
+        setMcpConfig(originalConfig);
+      } catch (reloadError) {
+        console.error('❌ Failed to reload MCP config:', reloadError);
+      }
+    }
+  };
+
   const handleSaveCloudProvider = async (provider: 'openai' | 'anthropic' | 'gemini' | 'azure-openai', providerConfig: CloudLLMProviderConfig) => {
     try {
       // Enhanced logging for Azure OpenAI
@@ -672,21 +790,147 @@ export const EnhancedSettingsDialog: React.FC<EnhancedSettingsDialogProps> = ({
     try {
       setIsLoadingEntraConfig(true);
       const electronAPI = window.electronAPI as any;
-      
+
       console.log('🔄 Saving Entra config:', {
         clientId: newEntraConfig.clientId ? '[REDACTED]' : 'none',
         tenantId: newEntraConfig.tenantId ? '[REDACTED]' : 'none'
       });
 
-      await electronAPI.config.saveEntraConfig(newEntraConfig);
-      setEntraConfig(newEntraConfig);
-      
+      const selectedProfile = tenantProfiles.find(p => p.id === selectedProfileId) || null;
+      if (selectedProfile) {
+        // Profile-aware save: the form edits the selected profile's settings
+        const result = await electronAPI.config.saveTenantProfile({
+          ...selectedProfile,
+          entraConfig: newEntraConfig
+        });
+        if (!result?.success) {
+          throw new Error(result?.error || 'Failed to save tenant profile');
+        }
+        await loadTenantProfiles();
+
+        if (selectedProfile.id === activeProfileId) {
+          setEntraConfig(newEntraConfig);
+          if (result.requiresReauth) {
+            const proceed = window.confirm(
+              'These changes affect authentication and require signing in again. Sign in now?'
+            );
+            if (proceed) {
+              onClose();
+              try {
+                await electronAPI.auth.login();
+              } catch (loginError) {
+                console.error('Sign-in after profile change failed or was cancelled:', loginError);
+              }
+            }
+          }
+        }
+      } else {
+        // No profiles yet - legacy save; the main process auto-creates a "Default" profile
+        await electronAPI.config.saveEntraConfig(newEntraConfig);
+        setEntraConfig(newEntraConfig);
+        await loadTenantProfiles();
+      }
+
       console.log('✅ Entra config saved successfully');
     } catch (error) {
       console.error('❌ Failed to save Entra config:', error);
       throw error;
     } finally {
       setIsLoadingEntraConfig(false);
+    }
+  };
+
+  const handleAddProfile = async (name: string, copyCurrent: boolean) => {
+    const electronAPI = window.electronAPI as any;
+    const selectedProfile = tenantProfiles.find(p => p.id === selectedProfileId) || null;
+    const sourceEntra = selectedProfile?.entraConfig || entraConfig;
+    const now = new Date().toISOString();
+    const result = await electronAPI.config.saveTenantProfile({
+      id: '',
+      name,
+      entraConfig: copyCurrent && sourceEntra ? { ...sourceEntra } : { clientId: '', tenantId: '' },
+      mcp: copyCurrent && selectedProfile
+        ? { ...selectedProfile.mcp }
+        : { microsoftEnterpriseEnabled: false, lokkaUseGraphBeta: false },
+      createdAt: now,
+      updatedAt: now
+    });
+    if (!result?.success) {
+      alert(result?.error || 'Failed to add profile');
+      return;
+    }
+    await loadTenantProfiles();
+    setSelectedProfileId(result.profile.id);
+  };
+
+  const handleRenameProfile = async (name: string) => {
+    const selectedProfile = tenantProfiles.find(p => p.id === selectedProfileId);
+    if (!selectedProfile) return;
+    const electronAPI = window.electronAPI as any;
+    const result = await electronAPI.config.saveTenantProfile({ ...selectedProfile, name });
+    if (!result?.success) {
+      alert(result?.error || 'Failed to rename profile');
+      return;
+    }
+    await loadTenantProfiles();
+  };
+
+  const handleDeleteProfile = async () => {
+    if (!selectedProfileId) return;
+    const electronAPI = window.electronAPI as any;
+    const result = await electronAPI.config.deleteTenantProfile(selectedProfileId);
+    if (!result?.success) {
+      alert(result?.error || 'Failed to delete profile');
+      return;
+    }
+    setSelectedProfileId(null);
+    await loadTenantProfiles();
+  };
+
+  const handleSwitchProfile = async () => {
+    if (!selectedProfileId) return;
+    const electronAPI = window.electronAPI as any;
+    const result = await electronAPI.config.setActiveTenantProfile(selectedProfileId);
+    if (!result?.success) {
+      alert(result?.error || 'Failed to switch profile');
+      return;
+    }
+    setActiveProfileId(selectedProfileId);
+    // Close settings and immediately prompt sign-in to the new tenant
+    onClose();
+    try {
+      await electronAPI.auth.login();
+    } catch (loginError) {
+      console.error('Sign-in after profile switch failed or was cancelled:', loginError);
+    }
+  };
+
+  const handleProfileMcpToggle = async (
+    key: 'microsoftEnterpriseEnabled' | 'lokkaUseGraphBeta',
+    value: boolean
+  ) => {
+    const selectedProfile = tenantProfiles.find(p => p.id === selectedProfileId);
+    if (!selectedProfile) return;
+    const electronAPI = window.electronAPI as any;
+    const result = await electronAPI.config.saveTenantProfile({
+      ...selectedProfile,
+      mcp: { ...selectedProfile.mcp, [key]: value }
+    });
+    if (!result?.success) {
+      alert(result?.error || 'Failed to update profile');
+      return;
+    }
+    await loadTenantProfiles();
+
+    // Persisting an MCP toggle reinitializes the MCP services (Lokka restarts with new
+    // env). The restart doesn't re-apply the live token, so re-authenticate to restore a
+    // working connection on the new endpoint. (Same pattern as switching profiles.)
+    if (mcpToggleRequiresReauth(key)) {
+      try {
+        await electronAPI.auth.login();
+      } catch (loginError) {
+        console.error('Re-authentication after MCP toggle failed or was cancelled:', loginError);
+      }
     }
   };
 
@@ -763,7 +1007,13 @@ export const EnhancedSettingsDialog: React.FC<EnhancedSettingsDialogProps> = ({
       // Validate and fix model for the new provider
       const currentProvider = cloudProviders.find(p => p.provider === provider);
       if (currentProvider) {
-        const validModel = validateAndFixModel(provider, currentProvider.config.model);
+        // Trust the provider's live model list - the hardcoded list goes
+        // stale as providers release new models. If the live list isn't
+        // loaded yet we can't verify, so never silently rewrite the model.
+        const liveModels = availableModels[provider] || [];
+        const validModel = liveModels.length === 0 || liveModels.includes(currentProvider.config.model)
+          ? (currentProvider.config.model || validateAndFixModel(provider, currentProvider.config.model))
+          : validateAndFixModel(provider, currentProvider.config.model);
         if (validModel !== currentProvider.config.model) {
           console.log(`Switching model from "${currentProvider.config.model}" to "${validModel}" for provider "${provider}"`);
           
@@ -1011,14 +1261,182 @@ export const EnhancedSettingsDialog: React.FC<EnhancedSettingsDialogProps> = ({
                   Configure your Microsoft Entra application registration details. These settings are secure and stored locally encrypted.
                 </Typography>
               </Box>
-              
+
+              <TenantProfileSelector
+                profiles={tenantProfiles}
+                activeProfileId={activeProfileId}
+                selectedProfileId={selectedProfileId}
+                onSelect={setSelectedProfileId}
+                onAdd={handleAddProfile}
+                onRename={handleRenameProfile}
+                onDelete={handleDeleteProfile}
+                onSwitch={handleSwitchProfile}
+                onMcpToggle={handleProfileMcpToggle}
+              />
+
+              {/* MCP Server Configuration — between Tenant Profiles and Authentication Mode; collapsed by default */}
+              <Accordion sx={{ mb: 2 }}>
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                  <Typography variant="subtitle1" fontWeight="medium">MCP Server Configuration</Typography>
+                </AccordionSummary>
+                <AccordionDetails>
+                  <Grid container spacing={3}>
+                    <Grid item xs={12}>
+                      <Typography variant="body2" color="textSecondary" gutterBottom>
+                        Configure Model Context Protocol (MCP) servers for enhanced Microsoft Graph querying capabilities.
+                      </Typography>
+                    </Grid>
+
+                    {/* Interactive MCP apps (inline UI rendering) */}
+                    <Grid item xs={12}>
+                      <Box sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 1 }}>
+                        <FormControlLabel
+                          control={
+                            <Switch
+                              checked={mcpConfig.interactiveApps !== false}
+                              onChange={(e) => handleMcpConfigChange({
+                                ...mcpConfig,
+                                interactiveApps: e.target.checked
+                              })}
+                            />
+                          }
+                          label="Enable interactive MCP apps"
+                        />
+                        <Typography variant="caption" color="textSecondary" sx={{ display: 'block', ml: 4 }}>
+                          Render Lokka's Graph Explorer and other MCP apps inline in chat. Off = text/JSON results only.
+                        </Typography>
+                      </Box>
+                    </Grid>
+
+                    {/* Lokka MCP (Local) */}
+                    <Grid item xs={12}>
+                      <Box sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 1 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                          <ComputerIcon sx={{ mr: 1, color: 'primary.main' }} />
+                          <Typography variant="subtitle1" fontWeight="medium">
+                            Lokka MCP (Local)
+                          </Typography>
+                        </Box>
+                        <FormControlLabel
+                          control={
+                            <Switch
+                              checked={mcpConfig.lokka?.enabled ?? true}
+                              onChange={(e) => handleMcpConfigChange({
+                                ...mcpConfig,
+                                lokka: { ...mcpConfig.lokka, enabled: e.target.checked, authMode: 'enhanced-graph-access', useGraphPowerShell: true }
+                              })}
+                            />
+                          }
+                          label="Enable Lokka MCP Server"
+                        />
+                        <Typography variant="caption" color="textSecondary" sx={{ display: 'block', ml: 4 }}>
+                          Privacy-first local MCP server for general Microsoft Graph queries
+                        </Typography>
+                      </Box>
+                    </Grid>
+
+                    {/* Microsoft Enterprise MCP (Cloud) */}
+                    <Grid item xs={12}>
+                      <Box sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 1 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                          <CloudIcon sx={{ mr: 1, color: 'secondary.main' }} />
+                          <Typography variant="subtitle1" fontWeight="medium">
+                            Microsoft Enterprise MCP (Cloud)
+                          </Typography>
+                          <Chip
+                            label="v1.1.0"
+                            size="small"
+                            color="primary"
+                            sx={{ ml: 1 }}
+                          />
+                        </Box>
+                        <FormControlLabel
+                          control={
+                            <Switch
+                              checked={mcpConfig.microsoftEnterprise?.enabled ?? false}
+                              onChange={(e) => handleMcpConfigChange({
+                                ...mcpConfig,
+                                microsoftEnterprise: { ...mcpConfig.microsoftEnterprise, enabled: e.target.checked, grantedScopes: mcpConfig.microsoftEnterprise?.grantedScopes || [] }
+                              })}
+                            />
+                          }
+                          label="Enable Microsoft Enterprise MCP"
+                        />
+                        <Typography variant="caption" color="textSecondary" sx={{ display: 'block', ml: 4, mb: 2 }}>
+                          Cloud-based MCP server for enterprise features: Audit Logs, PIM, Conditional Access, Device Compliance
+                        </Typography>
+
+                        {mcpConfig.microsoftEnterprise?.enabled && (
+                          <Box sx={{ ml: 4, mt: 2 }}>
+                            <Alert severity="info" sx={{ mb: 2 }}>
+                              <Typography variant="body2">
+                                <strong>Admin Consent Required:</strong> Microsoft Enterprise MCP requires MCP-specific permissions. See Readme for prerequisites and step-by-step process.
+                                Run the PowerShell command to grant consent:
+                              </Typography>
+                              <Box sx={{ mt: 1, p: 1, bgcolor: 'background.default', borderRadius: 1, fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                                Grant-EntraBetaMCPServerPermission -ApplicationName 'EntraPulseLite'
+                              </Box>
+                            </Alert>
+
+                            {mcpConfig.microsoftEnterprise?.grantedScopes && mcpConfig.microsoftEnterprise.grantedScopes.length > 0 && (
+                              <Box>
+                                <Typography variant="caption" display="block" gutterBottom>
+                                  <strong>Granted MCP Scopes:</strong>
+                                </Typography>
+                                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                                  {mcpConfig.microsoftEnterprise.grantedScopes.map((scope) => (
+                                    <Chip
+                                      key={scope}
+                                      label={scope}
+                                      size="small"
+                                      color="success"
+                                      variant="outlined"
+                                    />
+                                  ))}
+                                </Box>
+                              </Box>
+                            )}
+                          </Box>
+                        )}
+                      </Box>
+                    </Grid>
+
+                    {/* Auto-Routing Info */}
+                    {mcpConfig.lokka?.enabled && mcpConfig.microsoftEnterprise?.enabled && (
+                      <Grid item xs={12}>
+                        <Alert severity="success">
+                          <Typography variant="body2">
+                            <strong>Auto-Routing Enabled:</strong> Queries will be intelligently routed between servers.
+                            General queries → Lokka (privacy), Enterprise queries → Microsoft MCP (audit logs, PIM, etc.)
+                          </Typography>
+                        </Alert>
+                      </Grid>
+                    )}
+
+                    {!mcpConfig.lokka?.enabled && !mcpConfig.microsoftEnterprise?.enabled && (
+                      <Grid item xs={12}>
+                        <Alert severity="warning">
+                          <Typography variant="body2">
+                            <strong>No MCP Servers Enabled:</strong> At least one MCP server must be enabled for Graph queries.
+                          </Typography>
+                        </Alert>
+                      </Grid>
+                    )}
+                  </Grid>
+                </AccordionDetails>
+              </Accordion>
+
               {isLoadingEntraConfig ? (
                 <Box display="flex" justifyContent="center" py={2}>
                   <CircularProgress size={24} />
                 </Box>
               ) : (
                 <EntraConfigForm
-                  config={entraConfig}
+                  key={selectedProfileId || 'no-profile'}
+                  config={
+                    tenantProfiles.find(p => p.id === selectedProfileId)?.entraConfig
+                    ?? entraConfig
+                  }
                   onSave={handleSaveEntraConfig}
                   onClear={handleClearEntraConfig}
                   graphPermissions={graphPermissions}
@@ -1269,7 +1687,9 @@ export const EnhancedSettingsDialog: React.FC<EnhancedSettingsDialogProps> = ({
                 })}
               </Grid>
             </AccordionDetails>
-          </Accordion>          {/* Advanced Settings */}
+          </Accordion>
+
+          {/* Advanced Settings */}
           <Accordion>
             <AccordionSummary expandIcon={<ExpandMoreIcon />}>
               <Typography variant="h6">Advanced Settings</Typography>
@@ -1291,11 +1711,14 @@ export const EnhancedSettingsDialog: React.FC<EnhancedSettingsDialogProps> = ({
                   <TextField
                     fullWidth
                     label="Max Tokens"
-                    type="number"                    value={config.maxTokens || 4096}
+                    type="number"
+                    value={config.maxTokens || 4096}
                     onChange={(e) => setConfig({ ...config, maxTokens: parseInt(e.target.value) })}
                     inputProps={{ min: 1, max: 8192 }}
                     helperText="Maximum response length"
-                  />                </Grid>                <Grid item xs={12}>
+                  />
+                </Grid>
+                <Grid item xs={12}>
                   <FormControlLabel
                     control={
                       <Switch
@@ -1391,7 +1814,7 @@ const CloudProviderCard: React.FC<CloudProviderCardProps> = ({
     config || {
       provider,
       model: provider === 'openai' ? 'gpt-4o-mini' : 
-             provider === 'anthropic' ? 'claude-sonnet-4-20250514' : 
+             provider === 'anthropic' ? 'claude-sonnet-4-6' :
              provider === 'gemini' ? 'gemini-1.5-flash' :
              provider === 'azure-openai' ? 'gpt-4o' : 'gpt-4o-mini',      apiKey: '',
       temperature: 0.2,
@@ -1412,7 +1835,7 @@ const CloudProviderCard: React.FC<CloudProviderCardProps> = ({
       setLocalConfig({
         provider,
         model: provider === 'openai' ? 'gpt-4o-mini' : 
-               provider === 'anthropic' ? 'claude-sonnet-4-20250514' : 
+               provider === 'anthropic' ? 'claude-sonnet-4-6' :
                provider === 'gemini' ? 'gemini-1.5-flash' :
                provider === 'azure-openai' ? 'gpt-4o' : 'gpt-4o-mini',
         apiKey: '',
@@ -1428,35 +1851,35 @@ const CloudProviderCard: React.FC<CloudProviderCardProps> = ({
     switch (provider) {
       case 'openai':
         return [
+          'gpt-5',
+          'gpt-5-mini',
           'gpt-4o',
-          'gpt-4o-mini', 
-          'gpt-4-turbo',
-          'gpt-4',
-          'gpt-3.5-turbo'
+          'gpt-4o-mini',
+          'gpt-4-turbo'
         ];
       case 'anthropic':
         return [
-          'claude-sonnet-4-20250514',      // Latest Claude 4 Sonnet (June 2025)
-          'claude-3-5-sonnet-20241022',
-          'claude-3-5-haiku-20241022',
-          'claude-3-opus-20240229',
-          'claude-3-sonnet-20240229',
-          'claude-3-haiku-20240307'
+          'claude-opus-4-8',
+          'claude-opus-4-7',
+          'claude-opus-4-6',
+          'claude-sonnet-4-6',
+          'claude-sonnet-4-5',
+          'claude-opus-4-5',
+          'claude-haiku-4-5'
         ];
       case 'gemini':
         return [
+          'gemini-2.5-pro',
+          'gemini-2.5-flash',
           'gemini-1.5-pro',
-          'gemini-1.5-flash',
-          'gemini-1.0-pro',
-          'gemini-pro',
-          'gemini-pro-vision'
+          'gemini-1.5-flash'
         ];
       case 'azure-openai':
         return [
+          'gpt-5',
           'gpt-4o',
           'gpt-4o-mini',
           'gpt-4-turbo',
-          'gpt-4',
           'gpt-35-turbo'
         ];
       default:
@@ -1590,14 +2013,9 @@ const CloudProviderCard: React.FC<CloudProviderCardProps> = ({
     setConnectionStatus('idle');
 
     try {
-      // Check if the current model is valid for the provider first
-      if (!isValidModelForProvider(localConfig.model, provider)) {
-        console.warn(`Test connection: Model "${localConfig.model}" is not valid for provider "${provider}"`);
-        setConnectionStatus('error');
-        // Optional: Could show a more specific error message about invalid model
-        return;
-      }
-
+      // No client-side model gating here: hardcoded model lists go stale,
+      // and the backend test validates the model against the provider's
+      // live model list anyway
       const success = await onTestConnection(localConfig);
       setConnectionStatus(success ? 'success' : 'error');
     } catch (error) {
@@ -1712,14 +2130,8 @@ const CloudProviderCard: React.FC<CloudProviderCardProps> = ({
               onChange={(e) => {
                 const selectedModel = e.target.value;
                 
-                // Validate the model for the current provider
-                if (!isValidModelForProvider(selectedModel, provider)) {
-                  console.warn(`Selected model "${selectedModel}" is not valid for provider "${provider}"`);
-                  // Note: Model validation warning will be shown through the existing modelFetchError prop
-                } else {
-                  console.log(`Selected model "${selectedModel}" is valid for provider "${provider}"`);
-                }
-                
+                // The dropdown is populated from the provider's live model list,
+                // so anything selectable here is valid
                 setLocalConfig({ ...localConfig, model: selectedModel });
               }}
               disabled={isLoadingModels}
@@ -1730,8 +2142,9 @@ const CloudProviderCard: React.FC<CloudProviderCardProps> = ({
                 </MenuItem>
               ))}
             </Select>
-            {/* Model validation warning */}
-            {localConfig.model && !isValidModelForProvider(localConfig.model, provider) && (
+            {/* Model validation warning - trust the live provider list first; the
+                hardcoded list is only a fallback when no models could be fetched */}
+            {localConfig.model && !models.includes(localConfig.model) && !isValidModelForProvider(localConfig.model, provider) && (
               <Typography variant="caption" color="warning.main" sx={{ mt: 0.5, display: 'block' }}>
                 ⚠️ Warning: "{localConfig.model}" may not be a valid model for {provider}. Please verify this model exists.
               </Typography>
@@ -1794,6 +2207,252 @@ const CloudProviderCard: React.FC<CloudProviderCardProps> = ({
           sx={{ mt: 1 }}
         />
       )}
+    </Paper>
+  );
+};
+
+// Tenant Profile selector - manages named per-tenant app registration profiles
+interface TenantProfileSelectorProps {
+  profiles: TenantProfile[];
+  activeProfileId: string | null;
+  selectedProfileId: string | null;
+  onSelect: (id: string) => void;
+  onAdd: (name: string, copyCurrent: boolean) => Promise<void>;
+  onRename: (name: string) => Promise<void>;
+  onDelete: () => Promise<void>;
+  onSwitch: () => Promise<void>;
+  onMcpToggle: (key: 'microsoftEnterpriseEnabled' | 'lokkaUseGraphBeta', value: boolean) => Promise<void>;
+}
+
+const TenantProfileSelector: React.FC<TenantProfileSelectorProps> = ({
+  profiles,
+  activeProfileId,
+  selectedProfileId,
+  onSelect,
+  onAdd,
+  onRename,
+  onDelete,
+  onSwitch,
+  onMcpToggle
+}) => {
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [renameDialogOpen, setRenameDialogOpen] = useState(false);
+  const [switchConfirmOpen, setSwitchConfirmOpen] = useState(false);
+  const [nameInput, setNameInput] = useState('');
+  const [copyCurrent, setCopyCurrent] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  const selectedProfile = profiles.find(p => p.id === selectedProfileId) || null;
+  const isActiveSelected = !!selectedProfileId && selectedProfileId === activeProfileId;
+
+  const run = async (fn: () => Promise<void>) => {
+    setBusy(true);
+    try {
+      await fn();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+      <Box display="flex" alignItems="center" gap={1} mb={1}>
+        <BusinessIcon fontSize="small" color="primary" />
+        <Typography variant="subtitle1" fontWeight="medium">Tenant Profiles</Typography>
+      </Box>
+      <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
+        Each profile stores the app registration and per-tenant settings for one tenant.
+        Switching the active profile signs you out and prompts sign-in to the new tenant.
+      </Typography>
+
+      {profiles.length === 0 ? (
+        <Alert severity="info" sx={{ mb: 1 }}>
+          No profiles yet - configure the settings below and Save to create a "Default" profile, or add a named profile.
+        </Alert>
+      ) : (
+        <FormControl fullWidth size="small" sx={{ mb: 2 }}>
+          <InputLabel>Profile</InputLabel>
+          <Select
+            value={selectedProfileId || ''}
+            label="Profile"
+            onChange={(e) => onSelect(e.target.value as string)}
+          >
+            {profiles.map(p => (
+              <MenuItem key={p.id} value={p.id}>
+                <Box display="flex" alignItems="center" gap={1}>
+                  {p.name}
+                  {p.id === activeProfileId && <Chip label="Active" color="success" size="small" />}
+                </Box>
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+      )}
+
+      <Box display="flex" gap={1} flexWrap="wrap" sx={{ mb: selectedProfile ? 2 : 0 }}>
+        <Button
+          size="small"
+          variant="outlined"
+          startIcon={<AddIcon />}
+          disabled={busy}
+          onClick={() => { setNameInput(''); setCopyCurrent(true); setAddDialogOpen(true); }}
+        >
+          Add Profile
+        </Button>
+        {selectedProfile && (
+          <>
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<EditIcon />}
+              disabled={busy}
+              onClick={() => { setNameInput(selectedProfile.name); setRenameDialogOpen(true); }}
+            >
+              Rename
+            </Button>
+            <Tooltip title={isActiveSelected ? 'Switch to another profile first' : ''}>
+              <span>
+                <Button
+                  size="small"
+                  color="error"
+                  variant="outlined"
+                  startIcon={<DeleteIcon />}
+                  disabled={busy || isActiveSelected}
+                  onClick={() => {
+                    if (window.confirm(`Delete profile "${selectedProfile.name}"?`)) {
+                      run(onDelete);
+                    }
+                  }}
+                >
+                  Delete
+                </Button>
+              </span>
+            </Tooltip>
+            {!isActiveSelected && (
+              <Button
+                size="small"
+                variant="contained"
+                startIcon={<SwapHorizIcon />}
+                disabled={busy}
+                onClick={() => setSwitchConfirmOpen(true)}
+              >
+                Switch to this profile
+              </Button>
+            )}
+          </>
+        )}
+      </Box>
+
+      {selectedProfile && (
+        <Box>
+          <Typography variant="subtitle2" sx={{ mb: 0.5 }}>Per-tenant MCP settings</Typography>
+          <Box display="flex" flexDirection="column">
+            <FormControlLabel
+              control={
+                <Switch
+                  size="small"
+                  checked={selectedProfile.mcp.microsoftEnterpriseEnabled}
+                  disabled={busy}
+                  onChange={(e) => run(() => onMcpToggle('microsoftEnterpriseEnabled', e.target.checked))}
+                />
+              }
+              label="Microsoft Enterprise MCP (requires tenant licensing and admin consent)"
+            />
+            <FormControlLabel
+              control={
+                <Switch
+                  size="small"
+                  checked={selectedProfile.mcp.lokkaUseGraphBeta}
+                  disabled={busy}
+                  onChange={(e) => run(() => onMcpToggle('lokkaUseGraphBeta', e.target.checked))}
+                />
+              }
+              label="Lokka: use Graph beta endpoint"
+            />
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4, mt: -0.5 }}>
+              Off = stable v1.0 (leaner results); on = beta (all properties). {MCP_ENDPOINT_REAUTH_NOTE}
+            </Typography>
+          </Box>
+        </Box>
+      )}
+
+      {/* Add profile dialog */}
+      <Dialog open={addDialogOpen} onClose={() => setAddDialogOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Add Tenant Profile</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            fullWidth
+            size="small"
+            label="Profile name"
+            value={nameInput}
+            onChange={(e) => setNameInput(e.target.value)}
+            sx={{ mt: 1, mb: 1 }}
+          />
+          <FormControlLabel
+            control={<Switch size="small" checked={copyCurrent} onChange={(e) => setCopyCurrent(e.target.checked)} />}
+            label="Copy current settings into the new profile"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAddDialogOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            disabled={!nameInput.trim() || busy}
+            onClick={() => run(async () => { await onAdd(nameInput.trim(), copyCurrent); setAddDialogOpen(false); })}
+          >
+            Add
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Rename profile dialog */}
+      <Dialog open={renameDialogOpen} onClose={() => setRenameDialogOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Rename Profile</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            fullWidth
+            size="small"
+            label="Profile name"
+            value={nameInput}
+            onChange={(e) => setNameInput(e.target.value)}
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRenameDialogOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            disabled={!nameInput.trim() || busy}
+            onClick={() => run(async () => { await onRename(nameInput.trim()); setRenameDialogOpen(false); })}
+          >
+            Rename
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Switch confirmation dialog */}
+      <Dialog open={switchConfirmOpen} onClose={() => setSwitchConfirmOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Switch Tenant Profile?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">
+            Switching to "{selectedProfile?.name}" will sign you out of the current tenant,
+            clear cached tokens, and prompt you to sign in to the new tenant.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSwitchConfirmOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="warning"
+            disabled={busy}
+            onClick={() => run(async () => { setSwitchConfirmOpen(false); await onSwitch(); })}
+          >
+            Switch & Sign In
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Paper>
   );
 };

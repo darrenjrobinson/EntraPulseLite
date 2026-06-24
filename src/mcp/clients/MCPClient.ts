@@ -3,6 +3,7 @@ import { MCPServerConfig } from '../types';
 import { MCPServerManager } from '../servers/MCPServerManager';
 import { MCPAuthService } from '../auth/MCPAuthService';
 import { MicrosoftDocsMCPClient } from './MicrosoftDocsMCPClient';
+import { MicrosoftEnterpriseMCPClient } from './MicrosoftEnterpriseMCPClient';
 
 export interface MCPRequest {
   jsonrpc: string;
@@ -26,22 +27,59 @@ export class MCPClient {
   private serverManager: MCPServerManager;
   private servers: Map<string, MCPServerConfig> = new Map();
   private microsoftDocsClients: Map<string, MicrosoftDocsMCPClient> = new Map();
+  private microsoftEnterpriseClients: Map<string, MicrosoftEnterpriseMCPClient> = new Map();
   private authService?: MCPAuthService;
 
-  constructor(serverConfigs: MCPServerConfig[], authService?: MCPAuthService) {
+  constructor(serverConfigs: MCPServerConfig[], authService?: MCPAuthService, externalServerManager?: MCPServerManager) {
     this.authService = authService;
-    // Initialize server manager with auth service if provided
-    this.serverManager = new MCPServerManager(serverConfigs, authService);
+    // Use external server manager if provided, otherwise create our own
+    // The external server manager is preferred as it has ConfigService for proper server initialization
+    if (externalServerManager) {
+      this.serverManager = externalServerManager;
+      console.log('🔧 MCPClient: Using external MCPServerManager');
+    } else {
+      this.serverManager = new MCPServerManager(serverConfigs, authService);
+      console.log('🔧 MCPClient: Created internal MCPServerManager (no ConfigService)');
+    }
+    
+    console.log('🔧 MCPClient: Initializing with server configs:', serverConfigs.map(s => ({
+      name: s.name,
+      type: s.type,
+      enabled: s.enabled
+    })));
     
     // Keep track of server configs for backward compatibility
     serverConfigs.forEach(config => {
+      console.log('🔧 MCPClient: Processing config:', {
+        name: config.name,
+        type: config.type,
+        typeCheck: config.type === 'microsoft-enterprise',
+        enabled: config.enabled,
+        shouldInitEnterprise: config.type === 'microsoft-enterprise' && config.enabled
+      });
+      
       this.servers.set(config.name, config);
       
       // Initialize Microsoft Docs MCP clients
       if (config.type === 'microsoft-docs' && config.enabled && authService) {
+        console.log('🔧 MCPClient: Initializing Microsoft Docs MCP client');
         this.microsoftDocsClients.set(config.name, new MicrosoftDocsMCPClient(config, authService));
       }
+      
+      // Initialize Microsoft Enterprise MCP clients with auth service for MCP-specific tokens
+      if (config.type === 'microsoft-enterprise' && config.enabled) {
+        console.log('✅ MCPClient: Condition met! Initializing Microsoft Enterprise MCP client for', config.name);
+        console.log('🔧 MCPClient: Using MCP URL:', config.url || 'https://mcp.svc.cloud.microsoft/enterprise');
+        const enterpriseClient = new MicrosoftEnterpriseMCPClient({
+          baseUrl: config.url || 'https://mcp.svc.cloud.microsoft/enterprise'
+        }, authService);  // Pass auth service for MCP token acquisition
+        this.microsoftEnterpriseClients.set(config.name, enterpriseClient);
+        console.log('✅ MCPClient: Microsoft Enterprise MCP client created and stored with auth service');
+      }
     });
+    
+    console.log('🔧 MCPClient: Initialization complete. Servers:', Array.from(this.servers.keys()));
+    console.log('🔧 MCPClient: Enterprise clients:', Array.from(this.microsoftEnterpriseClients.keys()));
   }
 
   async call(serverName: string, method: string, params?: any): Promise<any> {
@@ -100,7 +138,10 @@ export class MCPClient {
   }
   async callTool(serverName: string, toolName: string, arguments_: any): Promise<any> {
     const server = this.servers.get(serverName);
+    console.log('🔧 MCPClient.callTool:', { serverName, toolName, hasServer: !!server, serverType: server?.type });
+    
     if (!server) {
+      console.error('❌ MCPClient: Server not found:', serverName, 'Available servers:', Array.from(this.servers.keys()));
       throw new Error(`MCP server '${serverName}' not found`);
     }
 
@@ -115,6 +156,69 @@ export class MCPClient {
         throw new Error(`Microsoft Docs MCP client for '${serverName}' not initialized`);
       }
       return await client.callTool(toolName, arguments_);
+    }
+
+    // Handle Microsoft Enterprise MCP server
+    if (server.type === 'microsoft-enterprise') {
+      console.log('🔧 MCPClient: Server type is microsoft-enterprise');
+      const client = this.microsoftEnterpriseClients.get(serverName);
+      console.log('🔧 MCPClient: Enterprise client found:', !!client, 'Available clients:', Array.from(this.microsoftEnterpriseClients.keys()));
+      
+      if (!client) {
+        console.error('❌ MCPClient: Microsoft Enterprise client not initialized for', serverName);
+        throw new Error(`Microsoft Enterprise MCP client for '${serverName}' not initialized`);
+      }
+      
+      console.log('🔧 MCPClient: Calling Microsoft Enterprise MCP tool:', toolName, arguments_);
+      
+      // Set auth service on client for token acquisition via getAuthHeaders
+      // The client will use getMCPServerToken() through MCPAuthService.getAuthHeaders('microsoft-enterprise')
+      if (this.authService) {
+        client.setAuthService(this.authService);
+      } else {
+        console.warn('⚠️ MCPClient: No auth service available for Enterprise MCP');
+      }
+      
+      // Use proper MCP protocol to call tools on the Enterprise MCP server
+      // The server exposes: microsoft_graph_suggest_queries, microsoft_graph_get, microsoft_graph_list_properties
+      try {
+        console.log(`🔧 MCPClient: Calling MCP tool "${toolName}" via proper MCP protocol`);
+        const result = await client.callTool(toolName, arguments_);
+        console.log('✅ MCPClient: Enterprise MCP tool call succeeded');
+        return result;
+      } catch (error) {
+        console.error('❌ MCPClient: Enterprise MCP tool call failed:', error);
+        throw error;
+      }
+    }
+
+    // Handle external-lokka server - needs direct handling via server manager
+    // Lokka uses tools/call directly without the generic call() path
+    if (server.type === 'external-lokka') {
+      console.log('🔧 MCPClient: Server type is external-lokka, using direct server manager');
+      try {
+        // Format the request properly for Lokka's handleRequest
+        const request = {
+          id: Date.now(),
+          method: 'tools/call',
+          params: {
+            name: toolName,
+            arguments: arguments_
+          }
+        };
+        
+        const response = await this.serverManager.handleRequest(serverName, request);
+        
+        if (response.error) {
+          throw new Error(response.error.message || 'Lokka MCP request failed');
+        }
+        
+        console.log('✅ MCPClient: Lokka MCP tool call succeeded');
+        return response.result;
+      } catch (error) {
+        console.error('❌ MCPClient: Lokka MCP tool call failed:', error);
+        throw error;
+      }
     }
 
     // Handle other server types using existing logic
@@ -205,6 +309,22 @@ export class MCPClient {
     );
     
     await Promise.all(promises);
+  }
+
+  async initializeMicrosoftEnterpriseClients(): Promise<void> {
+    const promises = Array.from(this.microsoftEnterpriseClients.values()).map(client => {
+      // Set auth service before initializing
+      if (this.authService) {
+        client.setAuthService(this.authService);
+      }
+      return client.initialize().catch(error => {
+        console.error('Failed to initialize Microsoft Enterprise MCP client:', error);
+        // Don't throw here to allow other clients to initialize
+      });
+    });
+    
+    await Promise.all(promises);
+    console.log('✅ MCPClient: Microsoft Enterprise MCP clients initialized');
   }
   
   async stopAllServers(): Promise<void> {

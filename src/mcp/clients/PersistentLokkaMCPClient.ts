@@ -3,6 +3,7 @@ import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { LOKKA_NPX_ARGS, LOKKA_PINNED_PACKAGE } from '../constants';
 
 interface LokkaMCPRequest {
   jsonrpc: string;
@@ -170,7 +171,7 @@ export class PersistentLokkaMCPClient extends EventEmitter {
 
         // Use a more reliable spawn approach for persistent process
         console.log('[PersistentLokka] Spawning persistent Lokka process...');
-        console.log('[PersistentLokka] Command: npx -y @merill/lokka');
+        console.log(`[PersistentLokka] Command: npx ${LOKKA_NPX_ARGS.join(' ')}`);
         console.log('[PersistentLokka] Working directory:', this.tempDir);
 
         // NEW: SIMPLIFIED APPROACH - Just run Lokka with minimal environment
@@ -206,7 +207,7 @@ export class PersistentLokkaMCPClient extends EventEmitter {
         if (process.platform === 'win32') {
           try {
             console.log('[PersistentLokka] Attempting Windows shell spawn...');
-            this.process = spawn('npx', ['-y', '@merill/lokka'], {
+            this.process = spawn('npx', [...LOKKA_NPX_ARGS], {
               ...spawnOptions,
               shell: true // Enable shell for Windows to find npx
             });
@@ -235,7 +236,7 @@ export class PersistentLokkaMCPClient extends EventEmitter {
               'echo CLIENT_ID=%CLIENT_ID%',
               'echo USE_CLIENT_TOKEN=%USE_CLIENT_TOKEN%',
               'echo ENTRAPULSE_TEST=%ENTRAPULSE_TEST%',
-              'npx -y @merill/lokka'
+              `npx -y ${LOKKA_PINNED_PACKAGE}`
             ].join('\r\n');
             
             fs.writeFileSync(batchFilePath, batchContent);
@@ -260,7 +261,7 @@ export class PersistentLokkaMCPClient extends EventEmitter {
         if (!this.process) {
           try {
             console.log('[PersistentLokka] Attempting direct spawn...');
-            this.process = spawn('npx', ['-y', '@merill/lokka'], {
+            this.process = spawn('npx', [...LOKKA_NPX_ARGS], {
               ...spawnOptions,
               shell: false // Disable shell to avoid command injection issues
             });
@@ -274,7 +275,7 @@ export class PersistentLokkaMCPClient extends EventEmitter {
         if (!this.process && process.platform === 'win32') {
           try {
             console.log('[PersistentLokka] Attempting cmd.exe wrapper spawn...');
-            this.process = spawn('cmd.exe', ['/c', 'npx', '-y', '@merill/lokka'], {
+            this.process = spawn('cmd.exe', ['/c', 'npx', ...LOKKA_NPX_ARGS], {
               ...spawnOptions,
               shell: false
             });

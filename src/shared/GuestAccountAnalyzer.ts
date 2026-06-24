@@ -35,10 +35,11 @@ export class GuestAccountAnalyzer {
       // Get total user count
       const totalUsersResponse = await this.mcpClient.callTool(
         'external-lokka',
-        'microsoft_graph_query',
+        'Lokka-Microsoft',
         {
-          endpoint: '/users/$count',
-          method: 'GET'
+          apiType: 'graph',
+          path: '/users/$count',
+          method: 'get'
         }
       );
       
@@ -47,10 +48,11 @@ export class GuestAccountAnalyzer {
       // Get guest user count
       const guestUsersResponse = await this.mcpClient.callTool(
         'external-lokka',
-        'microsoft_graph_query',
+        'Lokka-Microsoft',
         {
-          endpoint: '/users/$count',
-          method: 'GET',
+          apiType: 'graph',
+          path: '/users/$count',
+          method: 'get',
           queryParams: {
             '$filter': "userType eq 'Guest'"
           }
@@ -86,7 +88,7 @@ export class GuestAccountAnalyzer {
     try {
       const response = await this.mcpClient.callTool(
         'external-lokka',
-        'microsoft_graph_query',
+        'Lokka-Microsoft',
         {
           apiType: 'graph',
           method: 'get',
@@ -123,10 +125,11 @@ export class GuestAccountAnalyzer {
     try {
       const response = await this.mcpClient.callTool(
         'external-lokka',
-        'microsoft_graph_query',
+        'Lokka-Microsoft',
         {
-          endpoint: '/users',
-          method: 'GET',
+          apiType: 'graph',
+          path: '/users',
+          method: 'get',
           queryParams: {
             '$select': 'id,displayName,mail,userPrincipalName,userType,createdDateTime',
             '$filter': `userType eq 'Guest' and endsWith(mail, '@${domain}')`,
@@ -159,10 +162,11 @@ export class GuestAccountAnalyzer {
       // Get all guest accounts
       const response = await this.mcpClient.callTool(
         'external-lokka',
-        'microsoft_graph_query',
+        'Lokka-Microsoft',
         {
-          endpoint: '/users',
-          method: 'GET',
+          apiType: 'graph',
+          path: '/users',
+          method: 'get',
           queryParams: {
             '$select': 'id,mail',
             '$filter': "userType eq 'Guest' and mail ne null",

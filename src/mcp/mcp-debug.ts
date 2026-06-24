@@ -1,7 +1,7 @@
 // MCP Debug utility to check the status of MCP servers
 
 import { MCPServerManager } from './servers/MCPServerManager';
-import { MCPClient } from './clients/MCPSDKClient';
+import { MCPClient } from './clients/MCPClient';
 import { AuthService } from '../auth/AuthService';
 import { MCPAuthService } from './auth/MCPAuthService';
 import { AppConfig } from '../types';

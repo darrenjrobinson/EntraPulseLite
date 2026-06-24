@@ -59,6 +59,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     listServers: () => ipcRenderer.invoke('mcp:listServers'),
     listTools: (server) => ipcRenderer.invoke('mcp:listTools', server),
     restartLokkaMCPServer: () => ipcRenderer.invoke('mcp:restartLokkaMCPServer'),
+    // MCP Apps (interactive UI) bridge
+    ui: {
+      readResource: (serverId, resourceUri) => ipcRenderer.invoke('mcp:ui:readResource', serverId, resourceUri),
+      rpc: (serverId, request) => ipcRenderer.invoke('mcp:ui:rpc', serverId, request),
+    },
   },
 
   // Configuration methods
@@ -78,6 +83,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getEntraConfig: () => ipcRenderer.invoke('config:getEntraConfig'),
     saveEntraConfig: (config) => ipcRenderer.invoke('config:saveEntraConfig', config),
     clearEntraConfig: () => ipcRenderer.invoke('config:clearEntraConfig'),
+    getTenantProfiles: () => ipcRenderer.invoke('config:getTenantProfiles'),
+    getActiveTenantProfile: () => ipcRenderer.invoke('config:getActiveTenantProfile'),
+    saveTenantProfile: (profile) => ipcRenderer.invoke('config:saveTenantProfile', profile),
+    deleteTenantProfile: (id) => ipcRenderer.invoke('config:deleteTenantProfile', id),
+    setActiveTenantProfile: (id) => ipcRenderer.invoke('config:setActiveTenantProfile', id),
+    getMCPConfig: () => ipcRenderer.invoke('config:getMCPConfig'),
+    saveMCPConfig: (config) => ipcRenderer.invoke('config:saveMCPConfig', config),
   },
 
   // App methods
@@ -115,6 +127,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       'config:defaultCloudProviderChanged', 
       'auth:configurationAvailable', 
       'auth:enhancedGraphAccessChanged',
+      'profiles:activeChanged',
       'auth:logout',
       'llm:forceStatusRefresh',
       'update:checking-for-update',
@@ -165,6 +178,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       'config:defaultCloudProviderChanged', 
       'auth:configurationAvailable', 
       'auth:enhancedGraphAccessChanged',
+      'profiles:activeChanged',
       'llm:forceStatusRefresh',
       'update:checking-for-update',
       'update:available',
@@ -188,6 +202,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       'config:defaultCloudProviderChanged', 
       'auth:configurationAvailable', 
       'auth:enhancedGraphAccessChanged',
+      'profiles:activeChanged',
       'llm:forceStatusRefresh',
       'update:checking-for-update',
       'update:available',
@@ -211,6 +226,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       'config:defaultCloudProviderChanged', 
       'auth:configurationAvailable', 
       'auth:enhancedGraphAccessChanged',
+      'profiles:activeChanged',
       'llm:forceStatusRefresh',
       'update:checking-for-update',
       'update:available',
@@ -241,6 +257,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       'config:defaultCloudProviderChanged', 
       'auth:configurationAvailable', 
       'auth:enhancedGraphAccessChanged',
+      'profiles:activeChanged',
       'auth:logout',
       'llm:forceStatusRefresh',
       'main-debug' // Debug messages from main process

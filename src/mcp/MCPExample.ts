@@ -5,6 +5,7 @@ import { MCPAuthService } from './auth';
 import { AuthService } from '../auth/AuthService';
 import { MCPServerConfig } from './types';
 import { MCPErrorHandler, ErrorCode } from './utils';
+import { LOKKA_NPX_ARGS } from './constants';
 
 // Define types for MCP content items
 interface MCPContentItem {
@@ -226,7 +227,7 @@ export function createDefaultMCPClient(): MCPClient {
       port: 8080,
       enabled: true,
       command: 'npx',
-      args: ['-y', '@merill/lokka'],
+      args: [...LOKKA_NPX_ARGS],
       authConfig: {
         type: 'msal',
         scopes: ['User.Read', 'User.ReadBasic.All']

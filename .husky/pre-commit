@@ -4,7 +4,9 @@
 echo "🔍 Running pre-commit security checks..."
 
 # Get staged files (excluding lock files and other common false positives)
-STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ts|js|tsx|jsx|json|md|txt)$' | grep -v -E '(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|\.git/|node_modules/)')
+# Trailing `|| true` keeps the hook from aborting under `sh -e` when grep
+# matches nothing (e.g. a deletion-only commit with no staged code files)
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ts|js|tsx|jsx|json|md|txt)$' | grep -v -E '(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|\.git/|node_modules/)' || true)
 
 if [ -n "$STAGED_FILES" ]; then
     echo "Checking staged files for secrets..."

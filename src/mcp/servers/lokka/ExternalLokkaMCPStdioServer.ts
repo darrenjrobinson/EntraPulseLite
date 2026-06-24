@@ -8,7 +8,10 @@ import { StdioMCPClient } from '../../clients/StdioMCPClient';
 import { EnhancedStdioMCPClient } from '../../clients/EnhancedStdioMCPClient';
 import { ManagedLokkaMCPClient } from '../../clients/ManagedLokkaMCPClient';
 import { PersistentLokkaMCPClient } from '../../clients/PersistentLokkaMCPClient';
+import { SdkMcpConnection } from '../../clients/SdkMcpConnection';
 import { ConfigService } from '../../../shared/ConfigService';
+import { LOKKA_NPX_ARGS, LOKKA_EXPOSED_TOOLS } from '../../constants';
+import { VERSION } from '../../../shared/version';
 
 export interface ExternalLokkaMCPServerConfig extends MCPServerConfig {
   env?: {
@@ -28,6 +31,7 @@ export class ExternalLokkaMCPStdioServer {
   private enhancedMcpClient: EnhancedStdioMCPClient | null = null;
   private managedClient: ManagedLokkaMCPClient | null = null;
   private persistentClient: PersistentLokkaMCPClient | null = null; // NEW: Persistent client
+  private sdkConnection: SdkMcpConnection | null = null; // NEW: official @modelcontextprotocol/sdk transport (tier-0)
   private tools: MCPTool[] = [];
   private isStarting: boolean = false; // NEW: Prevent concurrent startup attempts
   private startupPromise: Promise<void> | null = null; // NEW: Track ongoing startup
@@ -44,13 +48,13 @@ export class ExternalLokkaMCPStdioServer {
     this.tools = [
       {
         name: 'Lokka-Microsoft',
-        description: 'Query Microsoft Graph API via Lokka MCP server',
+        description: 'Query Microsoft Graph API or Azure Resource Manager API via Lokka MCP server',
         inputSchema: {
           type: 'object',
           properties: {
             apiType: {
               type: 'string',
-              description: 'API type (graph or azure)',
+              description: 'API type: "graph" for Microsoft Graph, "azure" for Azure Resource Manager',
               enum: ['graph', 'azure']
             },
             method: {
@@ -60,7 +64,20 @@ export class ExternalLokkaMCPStdioServer {
             },
             path: {
               type: 'string',
-              description: 'API path (e.g., /me, /users, /groups)'
+              description: 'API path (e.g., /me, /users, /groups for graph; /subscriptions/... for azure)'
+            },
+            graphApiVersion: {
+              type: 'string',
+              description: 'Microsoft Graph API version to use (default: v1.0)',
+              enum: ['v1.0', 'beta']
+            },
+            subscriptionId: {
+              type: 'string',
+              description: 'Azure subscription ID (required when apiType is azure)'
+            },
+            apiVersion: {
+              type: 'string',
+              description: 'Azure Resource Manager API version (required when apiType is azure, e.g., 2024-01-01)'
             },
             queryParams: {
               type: 'object',
@@ -76,7 +93,7 @@ export class ExternalLokkaMCPStdioServer {
             },
             consistencyLevel: {
               type: 'string',
-              description: 'Consistency level for directory queries (e.g., eventual)'
+              description: 'Consistency level for directory queries (e.g., eventual - required for $count and $search)'
             }
           },
           required: ['apiType', 'method', 'path']
@@ -90,6 +107,10 @@ export class ExternalLokkaMCPStdioServer {
             accessToken: {
               type: 'string',
               description: 'Microsoft Graph access token'
+            },
+            expiresOn: {
+              type: 'string',
+              description: 'Token expiration as ISO 8601 timestamp (lets Lokka report expiry accurately)'
             }
           },
           required: ['accessToken']
@@ -191,7 +212,7 @@ export class ExternalLokkaMCPStdioServer {
     }
 
     console.log('Starting Lokka MCP server via stdio...');
-    console.log('Lokka version: Forcing latest version with --force flag');
+    console.log(`Lokka version: pinned via ${LOKKA_NPX_ARGS.join(' ')}`);
     
     const authPreference = this.configService.getAuthenticationPreference();
     console.log(`Using authentication preference: ${authPreference}`);
@@ -203,7 +224,7 @@ export class ExternalLokkaMCPStdioServer {
       port: this.config.port || 0, // Not used for stdio, but required by interface
       enabled: true,
       command: this.config.command || 'npx',
-      args: this.config.args || ['--yes', '@merill/lokka@latest'],
+      args: this.config.args || [...LOKKA_NPX_ARGS],
       env: env  // Put environment variables directly in env property
     };
 
@@ -215,6 +236,81 @@ export class ExternalLokkaMCPStdioServer {
       hasPreProvidedToken: !!(env.ACCESS_TOKEN && env.ACCESS_TOKEN !== 'dummy-token-will-be-replaced'),
       useInteractive: env.USE_INTERACTIVE || 'not-set'
     });
+
+    // TIER 0 (PRIMARY): Official @modelcontextprotocol/sdk transport.
+    // Replaces the hand-rolled stdio clients with the SDK Client + StdioClientTransport
+    // (see docs/EntraPulse-Lokka-MCP-Apps-Plan.md Phase 1). Like the persistent/managed
+    // clients it authenticates via environment variables (USE_CLIENT_TOKEN / ACCESS_TOKEN),
+    // so no set-access-token call is needed. The legacy clients below remain as fallback.
+    // Opt out at runtime with LOKKA_USE_SDK_TRANSPORT=false.
+    const useSdkTransport = env.LOKKA_USE_SDK_TRANSPORT !== 'false';
+    if (useSdkTransport) {
+      console.log('🚀 [ExternalLokkaMCPStdioServer] Attempting SDK transport first (official @modelcontextprotocol/sdk)...');
+      try {
+        const filteredEnv: Record<string, string> = {};
+        Object.entries(env).forEach(([key, value]) => {
+          if (value !== undefined && value !== '') {
+            filteredEnv[key] = value;
+          }
+        });
+
+        if (!filteredEnv.TENANT_ID || !filteredEnv.CLIENT_ID) {
+          console.warn('⚠️ [SDK Transport] Required environment variables (TENANT_ID, CLIENT_ID) missing - skipping SDK transport');
+          throw new Error('Required environment variables (TENANT_ID, CLIENT_ID) are missing or empty for SDK transport');
+        }
+
+        this.sdkConnection = new SdkMcpConnection({
+          command: clientConfig.command || 'npx',
+          args: clientConfig.args || [...LOKKA_NPX_ARGS],
+          env: filteredEnv,
+          clientInfo: { name: 'EntraPulseLite', version: VERSION },
+          // Lokka registers its UI resources unconditionally; no special apps
+          // capability is required at the MCP transport layer (MCP_APPS_CONTRACT.md §1).
+          capabilities: {},
+          onStderr: (line) => console.log(`[Lokka stderr] ${line}`),
+        });
+
+        console.log('🔧 [ExternalLokkaMCPStdioServer] Starting SDK transport...');
+        await this.sdkConnection.start();
+
+        console.log('✅ [ExternalLokkaMCPStdioServer] SDK transport connected successfully');
+        console.log('🎉 Lokka MCP server ready via official SDK transport');
+
+        // Refresh the exposed tool list from the live server.
+        try {
+          const sdkTools = await this.sdkConnection.listTools();
+          if (sdkTools.length > 0) {
+            this.tools = this.filterExposedTools(sdkTools.map((t) => ({
+              name: t.name,
+              description: t.description || '',
+              inputSchema: (t.inputSchema as object) || {},
+            })));
+          }
+        } catch (toolsError) {
+          console.warn('⚠️ [SDK Transport] Could not list tools after connect:', toolsError);
+        }
+
+        await this.verifyEnvironmentConfig();
+
+        // SDK transport authenticates via env vars (same as persistent/managed) — no
+        // set-access-token call (which would error with "Token update only supported...").
+        console.log('✅ SDK transport uses environment variables for authentication - no token setting required');
+
+        return; // Success with SDK transport
+      } catch (sdkError) {
+        console.warn('⚠️ [ExternalLokkaMCPStdioServer] SDK transport failed, falling back to persistent client:', sdkError);
+        if (this.sdkConnection) {
+          try {
+            await this.sdkConnection.stop();
+          } catch (stopError) {
+            console.warn('Error stopping SDK transport:', stopError);
+          }
+          this.sdkConnection = null;
+        }
+      }
+    } else {
+      console.log('⏭️ [ExternalLokkaMCPStdioServer] SDK transport disabled (LOKKA_USE_SDK_TRANSPORT=false) - using legacy clients');
+    }
 
     // FIRST PRIORITY: Try the Persistent Lokka Client (like a Runspace - start once, reuse)
     console.log('🚀 [ExternalLokkaMCPStdioServer] Attempting Persistent Lokka Client first (Runspace-style)...');
@@ -420,9 +516,9 @@ export class ExternalLokkaMCPStdioServer {
         console.log('🔧 Lokka MCP server ready with tools:', availableTools.map(t => t.name));
         console.log('🔧 Full tool details:', JSON.stringify(availableTools, null, 2));
         
-        // Update our tools list with what the server actually provides
+        // Update our tools list with what the server actually provides (allowlisted)
         if (availableTools.length > 0) {
-          this.tools = availableTools;
+          this.tools = this.filterExposedTools(availableTools);
           console.log('✅ Tools list updated with server response');
         } else {
           console.warn('⚠️ No tools returned from Lokka server');
@@ -451,7 +547,10 @@ export class ExternalLokkaMCPStdioServer {
       let activeClient: any = null;
       let clientType = 'none';
       
-      if (this.persistentClient && (this.persistentClient as any).isInitialized && (this.persistentClient as any).isInitialized()) {
+      if (this.sdkConnection && this.sdkConnection.isInitialized()) {
+        activeClient = this.sdkConnection;
+        clientType = 'sdk';
+      } else if (this.persistentClient && (this.persistentClient as any).isInitialized && (this.persistentClient as any).isInitialized()) {
         activeClient = this.persistentClient;
         clientType = 'persistent';
       } else if (this.managedClient && (this.managedClient as any).isInitialized && (this.managedClient as any).isInitialized()) {
@@ -502,7 +601,19 @@ export class ExternalLokkaMCPStdioServer {
 
   async stopServer(): Promise<void> {
     console.log('Stopping Lokka MCP server...');
-    
+
+    // Stop SDK transport if it's being used (tier-0)
+    if (this.sdkConnection) {
+      try {
+        console.log('Stopping SDK transport...');
+        await this.sdkConnection.stop();
+        this.sdkConnection = null;
+        console.log('SDK transport stopped');
+      } catch (error) {
+        console.warn('Error stopping SDK transport:', error);
+      }
+    }
+
     // Stop persistent client if it's being used
     if (this.persistentClient) {
       try {
@@ -554,58 +665,89 @@ export class ExternalLokkaMCPStdioServer {
     console.log('Lokka MCP server stopped');
   }
 
+  // Lokka v2 registers many tools (connection management, interactive consent,
+  // browser launchers) that conflict with EntraPulse Lite managing auth itself.
+  // Only expose the allowlisted tools to the rest of the app / LLM.
+  private filterExposedTools(tools: MCPTool[]): MCPTool[] {
+    const filtered = tools.filter(tool => LOKKA_EXPOSED_TOOLS.includes(tool.name));
+    if (filtered.length < tools.length) {
+      console.log(`🔍 Filtered Lokka tools: exposing ${filtered.length} of ${tools.length} (allowlist: ${LOKKA_EXPOSED_TOOLS.join(', ')})`);
+    }
+    // If the server returned tools but none matched the allowlist, fall back to
+    // the full list rather than crippling the integration (e.g. upstream rename).
+    if (filtered.length === 0 && tools.length > 0) {
+      console.warn('⚠️ No Lokka tools matched the allowlist - exposing unfiltered list. Upstream tool names may have changed.');
+      return tools;
+    }
+    return filtered;
+  }
+
   async listTools(): Promise<MCPTool[]> {
+    // Try SDK transport first (tier-0)
+    if (this.sdkConnection && this.sdkConnection.isInitialized()) {
+      try {
+        const tools = await this.sdkConnection.listTools();
+        return this.filterExposedTools(tools.map((tool) => ({
+          name: tool.name,
+          description: tool.description || '',
+          inputSchema: (tool.inputSchema as object) || {},
+        })));
+      } catch (error) {
+        console.error('Failed to list tools from SDK transport:', error);
+      }
+    }
+
     // Try persistent client first
     if (this.persistentClient && this.persistentClient.isInitialized && this.persistentClient.isInitialized()) {
       try {
         console.log('🔍 Listing tools from persistent client...');
         const response = await this.persistentClient.sendRequest('tools/list', {});
         console.log('🔍 Persistent client tools response:', response);
-        
+
         const tools = response.result?.tools || response.tools || [];
-        return tools.map((tool: any) => ({
+        return this.filterExposedTools(tools.map((tool: any) => ({
           name: tool.name,
           description: tool.description,
           inputSchema: tool.inputSchema
-        }));
+        })));
       } catch (error) {
         console.error('Failed to list tools from persistent Lokka client:', error);
       }
     }
-    
+
     // Try managed client second
     if (this.managedClient && this.managedClient.isInitialized && this.managedClient.isInitialized()) {
       try {
         console.log('🔍 Listing tools from managed client...');
         const response = await this.managedClient.sendRequest('tools/list', {});
         console.log('🔍 Managed client tools response:', response);
-        
+
         const tools = response.result?.tools || response.tools || [];
-        return tools.map((tool: any) => ({
+        return this.filterExposedTools(tools.map((tool: any) => ({
           name: tool.name,
           description: tool.description,
           inputSchema: tool.inputSchema
-        }));
+        })));
       } catch (error) {
         console.error('Failed to list tools from managed Lokka client:', error);
       }
     }
-    
+
     // Try enhanced client third
     if (this.enhancedMcpClient && this.enhancedMcpClient.isInitialized && this.enhancedMcpClient.isInitialized()) {
       try {
         const tools = await this.enhancedMcpClient.listTools();
-        return tools;
+        return this.filterExposedTools(tools);
       } catch (error) {
         console.error('Failed to list tools from enhanced Lokka client:', error);
       }
     }
-    
+
     // Try original client fourth
     if (this.mcpClient && this.mcpClient.isInitialized && this.mcpClient.isInitialized()) {
       try {
         const tools = await this.mcpClient.listTools();
-        return tools;
+        return this.filterExposedTools(tools);
       } catch (error) {
         console.error('Failed to list tools from original Lokka client:', error);
       }
@@ -619,7 +761,10 @@ export class ExternalLokkaMCPStdioServer {
     let activeClient: any = null;
     let clientType = 'none';
     
-    if (this.persistentClient && this.persistentClient.isInitialized()) {
+    if (this.sdkConnection && this.sdkConnection.isInitialized()) {
+      activeClient = this.sdkConnection;
+      clientType = 'sdk';
+    } else if (this.persistentClient && this.persistentClient.isInitialized()) {
       activeClient = this.persistentClient;
       clientType = 'persistent';
     } else if (this.managedClient && this.managedClient.isInitialized()) {
@@ -725,7 +870,10 @@ export class ExternalLokkaMCPStdioServer {
     let activeClient: any = null;
     let clientType = 'none';
     
-    if (this.persistentClient && this.persistentClient.isInitialized()) {
+    if (this.sdkConnection && this.sdkConnection.isInitialized()) {
+      activeClient = this.sdkConnection;
+      clientType = 'sdk';
+    } else if (this.persistentClient && this.persistentClient.isInitialized()) {
       activeClient = this.persistentClient;
       clientType = 'persistent';
     } else if (this.managedClient && this.managedClient.isInitialized()) {
@@ -760,7 +908,13 @@ export class ExternalLokkaMCPStdioServer {
         method: arguments_.method || 'get',
         path: arguments_.endpoint || arguments_.path, // Support both 'endpoint' and 'path'
         queryParams: arguments_.queryParams,
-        body: arguments_.body
+        body: arguments_.body,
+        // Pass through Lokka v2 options when provided
+        ...(arguments_.graphApiVersion ? { graphApiVersion: arguments_.graphApiVersion } : {}),
+        ...(arguments_.subscriptionId ? { subscriptionId: arguments_.subscriptionId } : {}),
+        ...(arguments_.apiVersion ? { apiVersion: arguments_.apiVersion } : {}),
+        ...(arguments_.fetchAll !== undefined ? { fetchAll: arguments_.fetchAll } : {}),
+        ...(arguments_.consistencyLevel ? { consistencyLevel: arguments_.consistencyLevel } : {})
       };
       
       console.log(`🔧 ExternalLokkaMCPStdioServer: Mapped tool '${toolName}' to '${actualToolName}'`);
@@ -858,9 +1012,27 @@ export class ExternalLokkaMCPStdioServer {
     }
   }
 
+  // MCP Apps: read a UI resource (text/html;profile=mcp-app) from the live server.
+  // Only the SDK transport (tier-0) supports resources/*; the legacy clients do not.
+  async readResource(uri: string): Promise<any> {
+    if (this.sdkConnection && this.sdkConnection.isInitialized()) {
+      return this.sdkConnection.readResource(uri);
+    }
+    throw new Error('resources/read is only available via the SDK transport (tier-0). Active client does not support MCP resources.');
+  }
+
+  // MCP Apps: list UI resources from the live server (SDK transport only).
+  async listResources(): Promise<any[]> {
+    if (this.sdkConnection && this.sdkConnection.isInitialized()) {
+      return this.sdkConnection.listResources();
+    }
+    throw new Error('resources/list is only available via the SDK transport (tier-0).');
+  }
+
   // Check if the server is running and initialized
   isReady(): boolean {
-    return (this.persistentClient && this.persistentClient.isInitialized()) ||
+    return (this.sdkConnection && this.sdkConnection.isInitialized()) ||
+           (this.persistentClient && this.persistentClient.isInitialized()) ||
            (this.managedClient && this.managedClient.isInitialized()) ||
            (this.enhancedMcpClient && this.enhancedMcpClient.isInitialized()) ||
            (this.mcpClient && this.mcpClient.isInitialized()) ||
@@ -871,8 +1043,14 @@ export class ExternalLokkaMCPStdioServer {
     let running = false;
     let initialized = false;
     let activeClient = 'none';
-    
-    if (this.persistentClient && this.persistentClient.isAlive()) {
+
+    if (this.sdkConnection && this.sdkConnection.isAlive()) {
+      running = true;
+      if (this.sdkConnection.isInitialized()) {
+        initialized = true;
+        activeClient = 'sdk';
+      }
+    } else if (this.persistentClient && this.persistentClient.isAlive()) {
       running = true;
       if (this.persistentClient.isInitialized()) {
         initialized = true;
@@ -912,7 +1090,8 @@ export class ExternalLokkaMCPStdioServer {
       
       const env = this.config.env || {};
       let accessToken: string;
-      
+      let tokenExpiresOn: string | undefined;
+
       // Check if we have a pre-provided ACCESS_TOKEN (Enhanced Graph Access mode)
       if (env.ACCESS_TOKEN && env.ACCESS_TOKEN !== 'dummy-token-will-be-replaced') {
         console.log('🔐 Using pre-provided PowerShell access token for Enhanced Graph Access');
@@ -927,7 +1106,8 @@ export class ExternalLokkaMCPStdioServer {
         }
         
         accessToken = token.accessToken;
-        
+        tokenExpiresOn = token.expiresOn ? new Date(token.expiresOn).toISOString() : undefined;
+
         console.log('Token details:', {
           hasToken: !!token.accessToken,
           tokenLength: token.accessToken.length,
@@ -939,7 +1119,10 @@ export class ExternalLokkaMCPStdioServer {
       let activeClient: any = null;
       let clientType = 'none';
       
-      if (this.persistentClient && this.persistentClient.isInitialized()) {
+      if (this.sdkConnection && this.sdkConnection.isInitialized()) {
+        activeClient = this.sdkConnection;
+        clientType = 'sdk';
+      } else if (this.persistentClient && this.persistentClient.isInitialized()) {
         activeClient = this.persistentClient;
         clientType = 'persistent';
       } else if (this.managedClient && this.managedClient.isInitialized()) {
@@ -961,17 +1144,19 @@ export class ExternalLokkaMCPStdioServer {
       console.log(`🔐 Setting access token for Lokka MCP server using ${clientType} client...`);
       
       let result: any;
+      const tokenArguments = {
+        accessToken: accessToken,
+        ...(tokenExpiresOn ? { expiresOn: tokenExpiresOn } : {})
+      };
       if (clientType === 'persistent' || clientType === 'managed') {
         // Persistent and managed clients use sendRequest
         result = await activeClient.sendRequest('tools/call', {
           name: 'set-access-token',
-          arguments: { accessToken: accessToken }
+          arguments: tokenArguments
         });
       } else {
         // Enhanced and original clients use callTool
-        result = await activeClient.callTool('set-access-token', {
-          accessToken: accessToken
-        });
+        result = await activeClient.callTool('set-access-token', tokenArguments);
       }
       
       console.log('MCP tool set-access-token result:', result);
@@ -1088,7 +1273,8 @@ export class ExternalLokkaMCPStdioServer {
 
       // Call the set-access-token tool (following test pattern)
       const result = await this.mcpClient?.callTool('set-access-token', {
-        accessToken: token.accessToken
+        accessToken: token.accessToken,
+        ...(token.expiresOn ? { expiresOn: new Date(token.expiresOn).toISOString() } : {})
       });
       
       console.log('MCP tool set-access-token result:', result);

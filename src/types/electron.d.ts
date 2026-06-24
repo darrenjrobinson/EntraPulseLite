@@ -35,6 +35,12 @@ interface MCPAPI {
   call(server: string, toolName: string, arguments_: any): Promise<any>;
   listServers(): Promise<string[]>;
   listTools(server: string): Promise<any[]>;
+  restartLokkaMCPServer?(): Promise<any>;
+  // MCP Apps (interactive UI) bridge
+  ui?: {
+    readResource(serverId: string, resourceUri: string): Promise<any>;
+    rpc(serverId: string, request: any): Promise<any>;
+  };
 }
 
 interface ConfigAPI {
@@ -53,6 +59,11 @@ interface ConfigAPI {
   getEntraConfig(): Promise<any>;
   saveEntraConfig(config: any): Promise<void>;
   clearEntraConfig(): Promise<void>;
+  getTenantProfiles(): Promise<{ profiles: any[]; activeProfileId: string | null }>;
+  getActiveTenantProfile(): Promise<any | null>;
+  saveTenantProfile(profile: any): Promise<{ success: boolean; profile?: any; requiresReauth?: boolean; error?: string }>;
+  deleteTenantProfile(id: string): Promise<{ success: boolean; error?: string }>;
+  setActiveTenantProfile(id: string): Promise<{ success: boolean; profile?: any; error?: string }>;
 }
 
 interface UpdaterAPI {

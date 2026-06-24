@@ -1,5 +1,8 @@
 // Global type definitions for EntraPulse Lite
 
+import type { McpUiResourceRef } from '../mcp/types';
+export type { McpUiResourceRef };
+
 export type LogLevel = 'Error' | 'Warning' | 'Info' | 'Verbose';
 
 export interface User {
@@ -35,7 +38,12 @@ export interface ChatMessage {
     mcpResults?: {
       fetchResult?: any;
       lokkaResult?: any;
+      microsoftEnterpriseResult?: any;
     };
+    mcpServerUsed?: 'lokka' | 'microsoft-enterprise' | 'auto-routed'; // Track which MCP server handled the query
+    // MCP Apps: when a tool call references an interactive UI resource, the renderer
+    // mounts an McpAppFrame for it. See McpUiResourceRef / docs/MCP_APPS_CONTRACT.md.
+    uiResource?: McpUiResourceRef;
     traceData?: {
       steps: string[];
       timing: Record<string, number>;
@@ -72,6 +80,25 @@ export interface EntraConfig {
   useSystemBrowser?: boolean; // Toggle for system browser authentication instead of embedded browser
 }
 
+// Per-tenant MCP settings captured by a tenant profile
+export interface TenantProfileMCPSettings {
+  microsoftEnterpriseEnabled: boolean; // maps to mcpConfig.microsoftEnterprise.enabled
+  lokkaUseGraphBeta: boolean;          // maps to mcpConfig.lokka.useGraphBeta
+}
+
+// A named tenant profile bundling the Entra app registration settings and
+// per-tenant MCP toggles. Profiles belong to the application installation
+// (stored at the root of the encrypted store), not to a signed-in user -
+// switching tenants changes the signed-in user.
+export interface TenantProfile {
+  id: string;                 // crypto.randomUUID()
+  name: string;               // display name, unique (case-insensitive)
+  entraConfig: EntraConfig;
+  mcp: TenantProfileMCPSettings;
+  createdAt: string;          // ISO timestamp
+  updatedAt: string;          // ISO timestamp
+}
+
 export interface LLMConfig {
   provider: 'ollama' | 'lmstudio' | 'openai' | 'anthropic' | 'gemini' | 'azure-openai';
   baseUrl?: string; // Not required for cloud providers
@@ -97,14 +124,18 @@ export interface MCPAuthConfig {
 
 // Add new interface for storing MCP configuration
 export interface MCPConfig {
+  // MCP Apps: render Lokka's interactive UIs (Graph Explorer, etc.) inline in chat.
+  // Defaults to on; false = text/JSON results only. See docs/MCP_APPS_CONTRACT.md.
+  interactiveApps?: boolean;
   lokka?: {
     enabled: boolean;
     authMode: 'client-credentials' | 'enhanced-graph-access' | 'delegated';
     clientId?: string; // Used for 'client-credentials' and 'delegated' modes
-    tenantId?: string; // Used for 'client-credentials' and 'delegated' modes  
+    tenantId?: string; // Used for 'client-credentials' and 'delegated' modes
     clientSecret?: string; // Only used for 'client-credentials' mode
     useGraphPowerShell?: boolean; // Controls 'enhanced-graph-access' mode
     accessToken?: string; // Runtime token for 'enhanced-graph-access' and 'delegated' modes
+    useGraphBeta?: boolean; // Lokka v2: false forces stable v1.0 Graph endpoint (Lokka defaults to beta)
   };
   fetch?: {
     enabled: boolean;
@@ -112,11 +143,17 @@ export interface MCPConfig {
   microsoftDocs?: {
     enabled: boolean;
   };
+  microsoftEnterprise?: {
+    enabled: boolean;
+    grantedScopes?: string[]; // MCP scopes that have been granted via admin consent
+    consentedAt?: string; // ISO timestamp of when admin consent was granted
+    baseUrl?: string; // Override for Microsoft MCP endpoint (defaults to https://mcp.svc.cloud.microsoft/enterprise)
+  };
 }
 
 export interface MCPServerConfig {
   name: string;
-  type: 'fetch' | 'external-lokka' | 'microsoft-docs';
+  type: 'fetch' | 'external-lokka' | 'microsoft-docs' | 'microsoft-enterprise';
   port: number;
   enabled: boolean;
   url?: string;
@@ -226,8 +263,13 @@ export interface EnhancedLLMResponse {
   mcpResults: {
     fetchResult?: any;
     lokkaResult?: any;
+    microsoftDocsResult?: any;
+    microsoftEnterpriseResult?: any;
   };
+  mcpServerUsed?: 'lokka' | 'microsoft-enterprise';
   finalResponse: string;
+  // MCP Apps: set when a tool call references an interactive UI resource to render inline.
+  uiResource?: McpUiResourceRef;
   traceData: {
     steps: string[];
     timing: Record<string, number>;

@@ -9,6 +9,7 @@ import { createHash, randomBytes } from 'crypto';
 import * as http from 'http';
 import * as net from 'net';
 import * as path from 'path';
+import { getAllMCPScopes, getMCPScopesForFeatures, getPriorityMCPScopes, isMCPScope, MCP_PERMISSION_TIERS } from './MCPScopes';
 
 export class AuthService {
   private pca: PublicClientApplication | ConfidentialClientApplication | null = null;
@@ -777,6 +778,94 @@ export class AuthService {
   }
 
   /**
+   * Get a token for the Microsoft MCP Server for Enterprise
+   * This acquires a token with the MCP server as the audience, not Microsoft Graph
+   * @returns Authentication token for MCP server or null if not authenticated
+   */
+  async getMCPServerToken(): Promise<AuthToken | null> {
+    // Microsoft MCP Server for Enterprise app ID
+    const MCP_SERVER_APP_ID = 'e8c77dc2-69b3-43f4-bc51-3213c9d915b4';
+    // Request the .default scope for the MCP server
+    const mcpScopes = [`api://${MCP_SERVER_APP_ID}/.default`];
+    
+    console.log('🔐 [AuthService] Acquiring token for MCP Server...');
+    console.log('🔐 [AuthService] MCP Server scopes:', mcpScopes);
+    
+    try {
+      if (!this.pca) {
+        console.error('❌ [AuthService] PCA not available for MCP token');
+        throw new Error('Authentication service not initialized');
+      }
+
+      if (!(this.pca instanceof PublicClientApplication)) {
+        throw new Error('Public client required for MCP token acquisition');
+      }
+      
+      // If we don't have an account, try to restore from MSAL cache
+      if (!this.account) {
+        console.log('🔄 [getMCPServerToken] No account set, checking MSAL cache...');
+        const accounts = await this.pca.getTokenCache().getAllAccounts();
+        if (accounts.length > 0) {
+          this.account = accounts[0];
+          console.log(`✅ [getMCPServerToken] Restored account from cache: ${this.account.username}`);
+        } else {
+          console.error('❌ [AuthService] No accounts in MSAL cache');
+          throw new Error('User not signed in - please sign in first');
+        }
+      }
+
+      // Try to acquire token silently for MCP server
+      console.log('🔄 [AuthService] Attempting silent MCP token acquisition...');
+      try {
+        const result = await this.pca.acquireTokenSilent({
+          scopes: mcpScopes,
+          account: this.account,
+          forceRefresh: false
+        });
+        
+        console.log('✅ [AuthService] Silent MCP token acquisition successful');
+        console.log('🔐 [AuthService] MCP token audience will be:', MCP_SERVER_APP_ID);
+        
+        return {
+          accessToken: result.accessToken,
+          idToken: result.idToken || '',
+          expiresOn: result.expiresOn || new Date(Date.now() + 3600 * 1000),
+          scopes: mcpScopes
+        };
+      } catch (silentError) {
+        console.log('⚠️ [AuthService] Silent MCP token acquisition failed:', silentError);
+        
+        // If silent fails, we need interactive consent for MCP scopes
+        // This typically happens the first time when user hasn't consented to MCP scopes
+        console.log('🔐 [AuthService] MCP token requires interactive consent');
+        
+        // Try interactive acquisition
+        try {
+          const interactiveResult = await this.pca.acquireTokenInteractive({
+            scopes: mcpScopes,
+            account: this.account
+          });
+          
+          console.log('✅ [AuthService] Interactive MCP token acquisition successful');
+          
+          return {
+            accessToken: interactiveResult.accessToken,
+            idToken: interactiveResult.idToken || '',
+            expiresOn: interactiveResult.expiresOn || new Date(Date.now() + 3600 * 1000),
+            scopes: mcpScopes
+          };
+        } catch (interactiveError) {
+          console.error('❌ [AuthService] Interactive MCP token acquisition failed:', interactiveError);
+          throw new Error(`Failed to acquire MCP token: ${(interactiveError as Error).message}`);
+        }
+      }
+    } catch (error) {
+      console.error('❌ [AuthService] Error acquiring MCP server token:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Get the current authentication token with automatic refresh
    * @returns Authentication token or null if not authenticated
    */
@@ -792,6 +881,13 @@ export class AuthService {
       } else if (this.pca instanceof PublicClientApplication) {
         // For interactive flow, try to get cached token first
         const accounts = await this.pca.getTokenCache().getAllAccounts();
+        
+        // If we have accounts in cache but no current account, restore from cache
+        if (accounts.length > 0 && !this.account) {
+          console.log('🔄 [getToken] Restoring account from MSAL cache...');
+          this.account = accounts[0];
+          console.log(`✅ [getToken] Restored account: ${this.account.username}`);
+        }
         
         if (accounts.length > 0 && this.account) {
           try {
@@ -1361,5 +1457,67 @@ export class AuthService {
         details: error
       };
     }
+  }
+
+  /**
+   * Request MCP scopes for Microsoft Enterprise MCP Server
+   * @param features Array of feature categories to request scopes for (e.g., ['AUDIT_LOGS', 'PIM'])
+   * @returns Authentication token with MCP scopes
+   */
+  async requestMCPScopes(features?: (keyof typeof MCP_PERMISSION_TIERS)[]): Promise<AuthToken | null> {
+    console.log('🔐 [AuthService] Requesting MCP scopes for features:', features);
+
+    // If no specific features requested, get priority scopes
+    const mcpScopes = features
+      ? getMCPScopesForFeatures(features)
+      : getPriorityMCPScopes();
+
+    console.log('📋 [AuthService] MCP scopes to request:', mcpScopes);
+
+    return this.requestAdditionalPermissions(mcpScopes);
+  }
+
+  /**
+   * Check if MCP scopes are already granted
+   * @param features Optional array of feature categories to check
+   * @returns true if all required MCP scopes are granted
+   */
+  hasMCPScopes(features?: (keyof typeof MCP_PERMISSION_TIERS)[]): boolean {
+    if (!this.config) {
+      return false;
+    }
+
+    const requiredScopes = features
+      ? getMCPScopesForFeatures(features)
+      : getPriorityMCPScopes();
+
+    return requiredScopes.every(scope =>
+      this.config!.auth.scopes.includes(scope)
+    );
+  }
+
+  /**
+   * Get currently granted MCP scopes
+   * @returns Array of granted MCP scopes
+   */
+  getGrantedMCPScopes(): string[] {
+    if (!this.config) {
+      return [];
+    }
+
+    return this.config.auth.scopes.filter(scope => isMCPScope(scope));
+  }
+
+  /**
+   * Get MCP token with appropriate scopes
+   * Automatically requests missing scopes if needed
+   */
+  async getMCPToken(features?: (keyof typeof MCP_PERMISSION_TIERS)[]): Promise<AuthToken | null> {
+    if (!this.hasMCPScopes(features)) {
+      console.log('⚠️  [AuthService] Missing MCP scopes, requesting them...');
+      return this.requestMCPScopes(features);
+    }
+
+    return this.getToken();
   }
 }

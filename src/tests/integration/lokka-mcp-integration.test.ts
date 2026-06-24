@@ -28,12 +28,14 @@ describe('Lokka MCP Integration Tests', () => {
     enabled: true,
     port: 0, // Added required port field
     command: 'npx',
-    args: ['--yes', '@merill/lokka@latest'],
+    args: ['-y', '@merill/lokka@2.0.0'],
     env: {
       TENANT_ID: 'test-tenant-id',
       CLIENT_ID: 'test-client-id',
       ACCESS_TOKEN: 'test-access-token',
-      USE_CLIENT_TOKEN: 'true'
+      USE_CLIENT_TOKEN: 'true',
+      // Legacy four-tier tests: disable tier-0 SDK transport (covered separately).
+      LOKKA_USE_SDK_TRANSPORT: 'false'
     }
   };
 
@@ -93,7 +95,8 @@ describe('Lokka MCP Integration Tests', () => {
         TENANT_ID: 'test-tenant-id',
         CLIENT_ID: 'test-client-id',
         ACCESS_TOKEN: 'test-access-token',
-        USE_CLIENT_TOKEN: 'true'
+        USE_CLIENT_TOKEN: 'true',
+        LOKKA_USE_SDK_TRANSPORT: 'false'
       });
 
       expect(mockPersistentClient.start).toHaveBeenCalled();

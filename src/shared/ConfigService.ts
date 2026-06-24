@@ -2,7 +2,8 @@
 // Secure configuration management service with user-context awareness
 
 import Store from 'electron-store';
-import { LLMConfig, CloudLLMProviderConfig, EntraConfig, MCPConfig } from '../types';
+import { randomUUID } from 'crypto';
+import { LLMConfig, CloudLLMProviderConfig, EntraConfig, MCPConfig, TenantProfile } from '../types';
 
 interface UserConfigSchema {
   llm: LLMConfig;
@@ -30,6 +31,11 @@ interface AppConfigSchema {
   // Metadata
   currentAuthMode: 'client-credentials' | 'interactive';
   currentUserKey?: string;
+
+  // Tenant profiles belong to the application installation, not to a
+  // signed-in user (the user context key changes on every tenant switch)
+  tenantProfiles?: { [id: string]: TenantProfile };
+  activeTenantProfileId?: string;
 }
 
 export class ConfigService {
@@ -46,7 +52,7 @@ export class ConfigService {
       defaults: {        application: {
           llm: {
             provider: 'anthropic',
-            model: 'claude-3-5-sonnet-20241022',
+            model: 'claude-sonnet-4-6',
             apiKey: '',
             baseUrl: '',
             temperature: 0.2,
@@ -109,7 +115,7 @@ export class ConfigService {
         console.log(`[ConfigService] Creating new user config for ${this.currentUserKey}`);
         users[this.currentUserKey] = {          llm: {
             provider: 'anthropic',
-            model: 'claude-3-5-sonnet-20241022',
+            model: 'claude-sonnet-4-6',
             apiKey: '',
             baseUrl: '',
             temperature: 0.2,
@@ -171,7 +177,7 @@ export class ConfigService {
     return {
       llm: {
         provider: 'anthropic' as const,
-        model: 'claude-3-5-sonnet-20241022',
+        model: 'claude-sonnet-4-6',
         apiKey: '', // Always empty for security
         baseUrl: '',
         temperature: 0.2,
@@ -749,7 +755,7 @@ export class ConfigService {
       // Reset application config to defaults
       const defaultAppConfig: UserConfigSchema = {
         llm: {
-          provider: 'anthropic',          model: 'claude-3-5-sonnet-20241022',
+          provider: 'anthropic',          model: 'claude-sonnet-4-6',
           apiKey: '',
           baseUrl: '',
           temperature: 0.2,
@@ -906,6 +912,175 @@ export class ConfigService {
     }
 
     console.log('[ConfigService] clearEntraConfig - Configuration cleared successfully');
+  }
+
+  // ===== Tenant Profiles =====
+  // Profiles are stored at the ROOT of the store (siblings of currentUserKey),
+  // deliberately outside the per-user contexts: the user context key is derived
+  // from the signed-in account, which changes on every tenant switch.
+
+  private hasTenantProfileAccess(): boolean {
+    if (!this.isAuthenticationVerified && !this.isServiceLevelAccess) {
+      console.log('[ConfigService] 🔒 Tenant profile access blocked - authentication not verified and not service-level access');
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Get all tenant profiles, sorted by name
+   */
+  getTenantProfiles(): TenantProfile[] {
+    if (!this.hasTenantProfileAccess()) return [];
+    const profiles: { [id: string]: TenantProfile } = this.store.get('tenantProfiles') || {};
+    return Object.values(profiles).sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /**
+   * Get a single tenant profile by id
+   */
+  getTenantProfile(id: string): TenantProfile | null {
+    if (!this.hasTenantProfileAccess()) return null;
+    const profiles: { [id: string]: TenantProfile } = this.store.get('tenantProfiles') || {};
+    return profiles[id] || null;
+  }
+
+  /**
+   * Create or update a tenant profile. Throws on duplicate name
+   * (case-insensitive) belonging to a different profile.
+   */
+  saveTenantProfile(profile: TenantProfile): TenantProfile {
+    if (!this.hasTenantProfileAccess()) {
+      throw new Error('Tenant profile access blocked - not authenticated');
+    }
+    const profiles: { [id: string]: TenantProfile } = this.store.get('tenantProfiles') || {};
+
+    const duplicate = Object.values(profiles).find(
+      p => p.id !== profile.id && p.name.trim().toLowerCase() === profile.name.trim().toLowerCase()
+    );
+    if (duplicate) {
+      throw new Error(`A profile named "${profile.name}" already exists`);
+    }
+
+    const now = new Date().toISOString();
+    const saved: TenantProfile = {
+      ...profile,
+      id: profile.id || randomUUID(),
+      name: profile.name.trim(),
+      createdAt: profiles[profile.id]?.createdAt || profile.createdAt || now,
+      updatedAt: now
+    };
+    profiles[saved.id] = saved;
+    this.store.set('tenantProfiles', profiles);
+    console.log(`[ConfigService] saveTenantProfile - Saved profile "${saved.name}" (${saved.id})`);
+    return saved;
+  }
+
+  /**
+   * Delete a tenant profile. The active profile cannot be deleted -
+   * switch to another profile first.
+   */
+  deleteTenantProfile(id: string): void {
+    if (!this.hasTenantProfileAccess()) {
+      throw new Error('Tenant profile access blocked - not authenticated');
+    }
+    if (id === this.getActiveTenantProfileId()) {
+      throw new Error('Cannot delete the active profile. Switch to another profile first.');
+    }
+    const profiles: { [id: string]: TenantProfile } = this.store.get('tenantProfiles') || {};
+    if (!profiles[id]) return;
+    delete profiles[id];
+    this.store.set('tenantProfiles', profiles);
+    console.log(`[ConfigService] deleteTenantProfile - Deleted profile ${id}`);
+  }
+
+  getActiveTenantProfileId(): string | undefined {
+    return this.store.get('activeTenantProfileId');
+  }
+
+  getActiveTenantProfile(): TenantProfile | null {
+    const id = this.getActiveTenantProfileId();
+    return id ? this.getTenantProfile(id) : null;
+  }
+
+  /**
+   * Set the active profile pointer only. Orchestration (sign-out, cache
+   * clearing, service reinitialization, reauth) lives in the main process.
+   */
+  setActiveTenantProfileId(id: string): void {
+    if (!this.hasTenantProfileAccess()) {
+      throw new Error('Tenant profile access blocked - not authenticated');
+    }
+    const profile = this.getTenantProfile(id);
+    if (!profile) {
+      throw new Error(`Tenant profile ${id} not found`);
+    }
+    this.store.set('activeTenantProfileId', id);
+    console.log(`[ConfigService] setActiveTenantProfileId - Active profile is now "${profile.name}" (${id})`);
+  }
+
+  /**
+   * Materialize a profile's settings into the current config context so all
+   * downstream consumers (auth, MCP environment, service reinitialization)
+   * keep working unchanged. Per-context consent state (grantedScopes,
+   * consentedAt) is preserved.
+   */
+  applyTenantProfileToCurrentContext(profile: TenantProfile): void {
+    if (!this.hasTenantProfileAccess()) return;
+
+    this.saveEntraConfig(profile.entraConfig);
+
+    const mcpConfig = this.getMCPConfig();
+    mcpConfig.lokka = {
+      ...(mcpConfig.lokka || { enabled: true, authMode: 'delegated' as const }),
+      useGraphPowerShell: profile.entraConfig.useGraphPowerShell,
+      useGraphBeta: profile.mcp.lokkaUseGraphBeta
+    };
+    mcpConfig.microsoftEnterprise = {
+      ...(mcpConfig.microsoftEnterprise || {}),
+      enabled: profile.mcp.microsoftEnterpriseEnabled
+    };
+    this.saveMCPConfig(mcpConfig);
+
+    console.log(`[ConfigService] applyTenantProfileToCurrentContext - Applied profile "${profile.name}" to current context`);
+  }
+
+  /**
+   * One-time lazy migration: if no profiles exist but an Entra config does,
+   * wrap the current settings in a "Default" profile and make it active.
+   * Idempotent - returns the existing active profile when already initialized.
+   */
+  ensureTenantProfilesInitialized(): TenantProfile | null {
+    if (!this.hasTenantProfileAccess()) return null;
+
+    const profiles: { [id: string]: TenantProfile } = this.store.get('tenantProfiles') || {};
+    if (Object.keys(profiles).length > 0) {
+      return this.getActiveTenantProfile();
+    }
+
+    const entraConfig = this.getEntraConfig();
+    if (!entraConfig || (!entraConfig.clientId && !entraConfig.tenantId && !entraConfig.useGraphPowerShell)) {
+      return null;
+    }
+
+    const mcpConfig = this.getMCPConfig();
+    const now = new Date().toISOString();
+    const defaultProfile: TenantProfile = {
+      id: randomUUID(),
+      name: 'Default',
+      entraConfig: { ...entraConfig },
+      mcp: {
+        microsoftEnterpriseEnabled: mcpConfig.microsoftEnterprise?.enabled ?? false,
+        // Default to the stable v1.0 Graph endpoint (leaner property set). Beta is opt-in.
+        lokkaUseGraphBeta: mcpConfig.lokka?.useGraphBeta ?? false
+      },
+      createdAt: now,
+      updatedAt: now
+    };
+    this.store.set('tenantProfiles', { [defaultProfile.id]: defaultProfile });
+    this.store.set('activeTenantProfileId', defaultProfile.id);
+    console.log('[ConfigService] ensureTenantProfilesInitialized - Migrated existing Entra config to "Default" profile');
+    return defaultProfile;
   }
 
   /**
@@ -1089,7 +1264,8 @@ export class ConfigService {
       tenantId: lokkaConfig?.tenantId ?? existingLokka?.tenantId,
       clientSecret: lokkaConfig?.clientSecret ?? existingLokka?.clientSecret,
       useGraphPowerShell: lokkaConfig?.useGraphPowerShell ?? existingLokka?.useGraphPowerShell ?? defaultLokka.useGraphPowerShell,
-      accessToken: lokkaConfig?.accessToken ?? existingLokka?.accessToken
+      accessToken: lokkaConfig?.accessToken ?? existingLokka?.accessToken,
+      useGraphBeta: lokkaConfig?.useGraphBeta ?? existingLokka?.useGraphBeta ?? false
     };
     this.saveMCPConfig(currentConfig);
   }
@@ -1175,6 +1351,13 @@ export class ConfigService {
           };
         }
         break;
+    }
+
+    // Lokka v2 defaults to the beta Graph endpoint internally. EntraPulse defaults to the
+    // stable v1.0 endpoint (leaner responses) and only uses beta when explicitly enabled,
+    // so force USE_GRAPH_BETA=false unless useGraphBeta === true.
+    if (lokkaConfig.useGraphBeta !== true) {
+      env.USE_GRAPH_BETA = 'false';
     }
 
     console.log('[ConfigService] Generated Lokka MCP environment:', {

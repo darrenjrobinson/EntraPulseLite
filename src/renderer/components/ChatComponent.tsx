@@ -46,6 +46,8 @@ import { ChatMessage, User, AuthToken, EnhancedLLMResponse, QueryAnalysis } from
 import { AppIcon } from './AppIcon';
 import { UserProfileAvatar } from './UserProfileAvatar';
 import { UserProfileDropdown } from './UserProfileDropdown';
+import { McpAppFrame } from './McpAppFrame';
+import { interactiveMcpAppsEnabled } from '../../shared/mcpSettings';
 import { useLLMStatus } from '../context/LLMStatusContext';
 import { eventManager } from '../../shared/EventManager';
 
@@ -54,6 +56,8 @@ interface ChatComponentProps {}
 export const ChatComponent: React.FC<ChatComponentProps> = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputMessage, setInputMessage] = useState('');
+  // MCP Apps: render interactive iframes inline (default on; text fallback always present).
+  const [mcpAppsEnabled, setMcpAppsEnabled] = useState(true);
   const [isLoading, setIsLoading] = useState(false);  const [user, setUser] = useState<User | null>(null);
   const [authToken, setAuthToken] = useState<AuthToken | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -73,6 +77,7 @@ export const ChatComponent: React.FC<ChatComponentProps> = () => {
   const [currentModel, setCurrentModel] = useState<string | null>(null);
   const [copyStatus, setCopyStatus] = useState<{ [key: string]: boolean }>({});
   const [sessionId, setSessionId] = useState<string>(() => `session-${Date.now()}`);
+  const [activeTenantProfile, setActiveTenantProfile] = useState<{ name: string; entraConfig?: { tenantId?: string } } | null>(null);
   
   // Cloud LLM status tracking
   const [cloudLLMStatus, setCloudLLMStatus] = useState<{
@@ -87,8 +92,29 @@ export const ChatComponent: React.FC<ChatComponentProps> = () => {
     lastChecked: null
   });
 
+  // MCP Server status tracking
+  const [mcpStatus, setMcpStatus] = useState<{
+    lokkaEnabled: boolean;
+    microsoftMcpEnabled: boolean;
+    mode: 'lokka-only' | 'microsoft-only' | 'auto-routing' | 'none';
+  }>({
+    lokkaEnabled: true,
+    microsoftMcpEnabled: false,
+    mode: 'lokka-only'
+  });
+
   useEffect(() => {
     initializeApp();
+  }, []);
+
+  // MCP Apps: load the "Enable interactive MCP apps" toggle (default on).
+  useEffect(() => {
+    (async () => {
+      try {
+        const mcp = await (window as any).electronAPI?.config?.getMCPConfig?.();
+        setMcpAppsEnabled(interactiveMcpAppsEnabled(mcp));
+      } catch { /* keep default (enabled) */ }
+    })();
   }, []);
 
   // Listen for default cloud provider changes
@@ -116,6 +142,61 @@ export const ChatComponent: React.FC<ChatComponentProps> = () => {
     }
   }, []);
 
+  // Track the active tenant profile for the header indicator
+  useEffect(() => {
+    const electronAPI = window.electronAPI as any;
+
+    const loadActiveProfile = async () => {
+      try {
+        const profile = await electronAPI?.config?.getActiveTenantProfile?.();
+        setActiveTenantProfile(profile || null);
+      } catch (error) {
+        console.warn('Failed to load active tenant profile:', error);
+      }
+    };
+
+    loadActiveProfile();
+
+    const handleProfileChanged = (event: any, profile: any) => {
+      console.log('🏢 [ChatComponent] Active tenant profile changed:', profile?.name);
+      setActiveTenantProfile(profile || null);
+    };
+    const handleConfigAvailable = () => {
+      // Re-fetch on configuration changes (covers renames/saves of the active profile)
+      loadActiveProfile();
+    };
+
+    if (electronAPI?.on) {
+      eventManager.addEventListener('profiles:activeChanged', handleProfileChanged, 'ChatComponent', electronAPI);
+      eventManager.addEventListener('auth:configurationAvailable', handleConfigAvailable, 'ChatComponent', electronAPI);
+      return () => {
+        eventManager.removeEventListener('profiles:activeChanged', 'ChatComponent', electronAPI);
+        eventManager.removeEventListener('auth:configurationAvailable', 'ChatComponent', electronAPI);
+      };
+    }
+  }, []);
+
+  // Refresh the signed-in user when auth state changes outside this component
+  // (e.g. sign-in triggered from Settings after a tenant profile switch)
+  useEffect(() => {
+    const handleAuthStatusChanged = async (event: any, data: { authenticated?: boolean }) => {
+      console.log('🔐 [ChatComponent] Auth status changed event received:', data);
+      try {
+        await checkAuthenticationStatus();
+      } catch (error) {
+        console.error('Failed to refresh auth status after change event:', error);
+      }
+    };
+
+    const electronAPIForAuthStatus = window.electronAPI as any;
+    if (electronAPIForAuthStatus?.on) {
+      eventManager.addEventListener('auth-status-changed', handleAuthStatusChanged, 'ChatComponent', electronAPIForAuthStatus);
+      return () => {
+        eventManager.removeEventListener('auth-status-changed', 'ChatComponent', electronAPIForAuthStatus);
+      };
+    }
+  }, []);
+
   // Listen for authentication logout events (e.g., from Enhanced Graph Access changes)
   useEffect(() => {
     const handleAuthLogout = (event: any, data: { reason?: string }) => {
@@ -129,7 +210,10 @@ export const ChatComponent: React.FC<ChatComponentProps> = () => {
       setCurrentPermissions(['User.Read']);
       setPermissionSource('default');
       setAuthMode('interactive');
-      
+      // Start a fresh session so the next sign-in (possibly a different
+      // tenant/user) cannot reuse the previous conversation context
+      setSessionId(`session-${Date.now()}`);
+
       console.log('✅ [ChatComponent] Authentication state reset after logout');
     };
 
@@ -183,6 +267,32 @@ export const ChatComponent: React.FC<ChatComponentProps> = () => {
     }
   };
 
+  const loadMCPStatus = async () => {
+    try {
+      const electronAPI = window.electronAPI as any;
+      const mcpConfig = await electronAPI.config.getMCPConfig();
+      const lokkaEnabled = mcpConfig.lokka?.enabled ?? true;
+      const microsoftMcpEnabled = mcpConfig.microsoftEnterprise?.enabled ?? false;
+
+      let mode: 'lokka-only' | 'microsoft-only' | 'auto-routing' | 'none';
+      if (lokkaEnabled && microsoftMcpEnabled) {
+        mode = 'auto-routing';
+      } else if (lokkaEnabled) {
+        mode = 'lokka-only';
+      } else if (microsoftMcpEnabled) {
+        mode = 'microsoft-only';
+      } else {
+        mode = 'none';
+      }
+
+      setMcpStatus({ lokkaEnabled, microsoftMcpEnabled, mode });
+      console.log('🔄 MCP status loaded:', { lokkaEnabled, microsoftMcpEnabled, mode });
+    } catch (error) {
+      console.error('Failed to load MCP status:', error);
+      // Keep default status on error
+    }
+  };
+
   const initializeApp = async () => {
     try {
       console.log('🚀 Initializing EntraPulse Lite...');
@@ -200,6 +310,9 @@ export const ChatComponent: React.FC<ChatComponentProps> = () => {
 
       // Load default cloud provider
       await loadDefaultCloudProvider();
+
+      // Load MCP server status
+      await loadMCPStatus();
 
       // Get authentication information (including permissions)
       const authInfo = await window.electronAPI.auth.getAuthenticationInfo();
@@ -339,8 +452,11 @@ export const ChatComponent: React.FC<ChatComponentProps> = () => {
   const handleCloseProfileDropdown = () => {
     setProfileDropdownAnchor(null);
   };
-  const handleSendMessage = async () => {
-    if (!inputMessage.trim() || isLoading) return;
+  const handleSendMessage = async (messageText?: string) => {
+    // messageText may be passed by MCP apps (ui/message, e.g. example query chips).
+    // Guard against an event object being passed by onClick={handleSendMessage}.
+    const text = (typeof messageText === 'string' ? messageText : inputMessage).trim();
+    if (!text || isLoading) return;
 
     // Force check LLM availability before sending
     await forceLLMCheck();
@@ -354,7 +470,7 @@ export const ChatComponent: React.FC<ChatComponentProps> = () => {
     const userMessage: ChatMessage = {
       id: Date.now().toString(),
       role: 'user',
-      content: inputMessage.trim(),
+      content: text,
       timestamp: new Date(),
     };
 
@@ -387,6 +503,8 @@ export const ChatComponent: React.FC<ChatComponentProps> = () => {
           ...metadata,
           queryAnalysis: typedResponse.analysis,
           mcpResults: typedResponse.mcpResults,
+          mcpServerUsed: typedResponse.mcpServerUsed,
+          uiResource: typedResponse.uiResource, // MCP Apps: inline UI to render (Phase 3 mounts McpAppFrame)
           traceData: typedResponse.traceData,
         };
       } else {
@@ -807,6 +925,16 @@ What would you like to explore?`,
                 ({user.tenantDisplayName})
               </Typography>
             )}
+            {activeTenantProfile && (
+              <Tooltip title={`Tenant profile${activeTenantProfile.entraConfig?.tenantId ? ` - Tenant ID: ${activeTenantProfile.entraConfig.tenantId}` : ''}`}>
+                <Chip
+                  label={activeTenantProfile.name}
+                  color="secondary"
+                  size="small"
+                  variant="outlined"
+                />
+              </Tooltip>
+            )}
           </Box>          {/* Local LLM Status with real-time updates */}
           <Tooltip title={llmLastChecked ? `Last checked: ${llmLastChecked.toLocaleTimeString()}` : "Checking status..."}>
             <Box sx={{ display: 'flex', alignItems: 'center' }}>
@@ -829,19 +957,19 @@ What would you like to explore?`,
           {/* Cloud LLM Provider and Model with Status */}
           {defaultCloudProvider && (
             <Tooltip title={
-              cloudLLMStatus.isRateLimited ? 
+              cloudLLMStatus.isRateLimited ?
                 `Rate limited - last checked: ${cloudLLMStatus.lastChecked?.toLocaleTimeString()}` :
               !cloudLLMStatus.isAvailable ?
                 `Error: ${cloudLLMStatus.lastError}` :
                 `Available - last checked: ${cloudLLMStatus.lastChecked?.toLocaleTimeString()}`
             }>
-              <Chip 
-                label={currentModel 
-                  ? `${getProviderDisplayName(defaultCloudProvider)}: ${currentModel}` 
+              <Chip
+                label={currentModel
+                  ? `${getProviderDisplayName(defaultCloudProvider)}: ${currentModel}`
                   : `Default: ${getProviderDisplayName(defaultCloudProvider)}`}
                 color={
                   cloudLLMStatus.isRateLimited ? "warning" :
-                  !cloudLLMStatus.isAvailable ? "error" : 
+                  !cloudLLMStatus.isAvailable ? "error" :
                   "primary"
                 }
                 size="small"
@@ -854,6 +982,29 @@ What would you like to explore?`,
               />
             </Tooltip>
           )}
+
+          {/* MCP Server Status */}
+          <Tooltip title={
+            mcpStatus.mode === 'auto-routing' ?
+              'Auto-routing: Lokka (local) + Microsoft MCP (enterprise)' :
+            mcpStatus.mode === 'lokka-only' ?
+              'Using Lokka MCP (local, privacy-first)' :
+            mcpStatus.mode === 'microsoft-only' ?
+              'Using Microsoft Enterprise MCP (cloud, enterprise features)' :
+              'No MCP servers enabled'
+          }>
+            <Chip
+              label={
+                mcpStatus.mode === 'auto-routing' ? '🏠☁️ Auto-routing' :
+                mcpStatus.mode === 'lokka-only' ? '🏠 Lokka' :
+                mcpStatus.mode === 'microsoft-only' ? '☁️ Microsoft MCP' :
+                'No MCP'
+              }
+              color={mcpStatus.mode === 'none' ? 'error' : 'info'}
+              size="small"
+              variant="outlined"
+            />
+          </Tooltip>
         </Box>        <Box display="flex" alignItems="center" gap={1}>
           <Tooltip title="Start New Chat">
             <Button
@@ -1181,7 +1332,16 @@ What would you like to explore?`,
                           {message.content}
                         </ReactMarkdown>
                       </Box>
-                      
+
+                      {/* MCP Apps: interactive UI rendered inline (text above remains as fallback) */}
+                      {mcpAppsEnabled && message.metadata?.uiResource && (
+                        <McpAppFrame
+                          uiResource={message.metadata.uiResource}
+                          onSendMessage={(text) => handleSendMessage(text)}
+                          onFillInput={(text) => setInputMessage(text)}
+                        />
+                      )}
+
                       {/* Enhanced trace data display */}
                       {message.metadata?.traceData && expandedTraces.has(message.id) && (
                         <Box sx={{ mt: 2, p: 2, bgcolor: 'background.default', borderRadius: 1 }}>
@@ -1209,7 +1369,12 @@ What would you like to explore?`,
                                 {message.metadata.queryAnalysis.needsFetchMcp && (
                                   <Chip label="Fetch MCP" size="small" color="info" />
                                 )}
-                                {message.metadata.queryAnalysis.needsLokkaMcp && (
+                                {/* Show actual MCP server used, or fall back to needsLokkaMcp */}
+                                {message.metadata.mcpServerUsed === 'microsoft-enterprise' ? (
+                                  <Chip label="Microsoft Enterprise MCP" size="small" color="secondary" />
+                                ) : message.metadata.mcpServerUsed === 'lokka' ? (
+                                  <Chip label="Lokka MCP" size="small" color="success" />
+                                ) : message.metadata.queryAnalysis.needsLokkaMcp && (
                                   <Chip label="Lokka MCP" size="small" color="success" />
                                 )}
                               </Box>
@@ -1262,6 +1427,13 @@ What would you like to explore?`,
                                 <Box>
                                   <Typography variant="body2" sx={{ fontSize: '0.85rem' }}>
                                     Lokka MCP: {JSON.stringify(message.metadata.mcpResults.lokkaResult, null, 2).substring(0, 200)}...
+                                  </Typography>
+                                </Box>
+                              )}
+                              {message.metadata.mcpResults.microsoftEnterpriseResult && (
+                                <Box>
+                                  <Typography variant="body2" sx={{ fontSize: '0.85rem' }}>
+                                    Microsoft Enterprise MCP: {JSON.stringify(message.metadata.mcpResults.microsoftEnterpriseResult, null, 2).substring(0, 200)}...
                                   </Typography>
                                 </Box>
                               )}
@@ -1342,7 +1514,7 @@ What would you like to explore?`,
           />
           <Button
             variant="contained"
-            onClick={handleSendMessage}
+            onClick={() => handleSendMessage()}
             disabled={!inputMessage.trim() || isLoading || !chatAvailable}            sx={{ 
               minWidth: 60,
               height: 44,  // Slightly reduced to match more compact design
