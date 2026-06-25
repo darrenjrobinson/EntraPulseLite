@@ -39,6 +39,7 @@ jest.mock('../../shared/ConfigService');
 import { ExternalLokkaMCPStdioServer, ExternalLokkaMCPServerConfig } from '../../mcp/servers/lokka/ExternalLokkaMCPStdioServer';
 import { MCPAuthService } from '../../mcp/auth/MCPAuthService';
 import { ConfigService } from '../../shared/ConfigService';
+import { LOKKA_INTERACTIVE_CLIENT_ID } from '../../mcp/constants';
 
 describe('ExternalLokkaMCPStdioServer — tier-0 SDK transport', () => {
   let server: ExternalLokkaMCPStdioServer;
@@ -95,7 +96,10 @@ describe('ExternalLokkaMCPStdioServer — tier-0 SDK transport', () => {
       expect.objectContaining({
         command: 'npx',
         args: ['-y', '@merill/lokka@2.0.0'],
-        env: expect.objectContaining({ TENANT_ID: 't', CLIENT_ID: 'c' }),
+        // In client-provided-token mode with a profile-specific tenant, the per-profile CLIENT_ID
+        // ('c') is replaced with Lokka's own multi-tenant client so its Connection Manager can sign
+        // in to other tenants. The primary connection still authenticates with the injected token.
+        env: expect.objectContaining({ TENANT_ID: 't', CLIENT_ID: LOKKA_INTERACTIVE_CLIENT_ID }),
       })
     );
     expect(mockSdkStart).toHaveBeenCalledTimes(1);
