@@ -69,12 +69,15 @@ export class LokkaPolicy implements ServerPolicy {
 
     if (method === 'tools/call') {
       const toolName = params?.name;
+      // EntraPulse owns the primary connection's token injection and permission consent, so those
+      // tools are denied. Lokka's own connection-management tools (add/switch/remove/list) are
+      // allowed to relay — Lokka owns additional connections.
       if (typeof toolName === 'string' && this.mutatingTools.includes(toolName)) {
         return {
           action: 'deny',
           reason:
-            'EntraPulse Lite manages authentication and connections itself. ' +
-            'Use EntraPulse Lite’s account/settings to sign in, add connections, or grant permissions.',
+            'EntraPulse Lite manages this itself. ' +
+            'Use EntraPulse Lite’s account/settings to grant permissions or change the active tenant.',
           redirect: 'entrapulse://settings/authentication',
         };
       }

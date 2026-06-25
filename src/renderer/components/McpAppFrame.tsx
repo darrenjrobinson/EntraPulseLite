@@ -217,8 +217,17 @@ export const McpAppFrame: React.FC<McpAppFrameProps> = ({ uiResource, onSendMess
               method: msg.method,
               params: msg.params,
             });
-            if (response?.error) reply({ error: response.error });
-            else reply({ result: response?.result });
+            // An IPC failure leaves `response` undefined; surface it as a JSON-RPC error rather
+            // than an empty success so the app doesn't silently treat it as a valid result.
+            if (!response) {
+              reply({ error: { code: -32603, message: 'No response from host.' } });
+              return;
+            }
+            if (response.error) {
+              reply({ error: response.error });
+              return;
+            }
+            reply({ result: response.result });
             return;
           }
 

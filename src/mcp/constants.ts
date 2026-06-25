@@ -1,3 +1,13 @@
+// Lokka's published multi-tenant public client id (mirrors LokkaClientId in @merill/lokka's
+// build/constants.js for the pinned LOKKA_VERSION below). In client-provided-token mode Lokka's
+// AuthManager uses the injected ACCESS_TOKEN and ignores CLIENT_ID — but Lokka's Connection Manager
+// reuses process.env.CLIENT_ID for interactive "add connection" sign-ins. A per-profile app (or
+// EntraPulse Lite's own app) is single-tenant and fails for any OTHER tenant (AADSTS700016:
+// application not found in directory). Lokka's own client is multi-tenant and consentable in any
+// tenant (the same client Lokka uses standalone), so EntraPulse runs Lokka with it in token mode so
+// added connections can sign in anywhere. Re-verify this id when bumping LOKKA_VERSION.
+export const LOKKA_INTERACTIVE_CLIENT_ID = 'a9bac4c3-af0d-4292-9453-9da89e390140';
+
 // Lokka MCP server package constants
 // Pin the version so a new upstream major release (e.g. the silent 0.3.0 -> 2.0.0 jump
 // on npm) cannot reach users untested. Bump deliberately alongside the package.json
@@ -31,16 +41,21 @@ export const LOKKA_EXPOSED_TOOLS = [
   ...LOKKA_UI_APP_TOOLS
 ];
 
-// Lokka tools that PERFORM authentication/connection mutations. EntraPulse owns auth,
-// so these are denied when initiated from an MCP App iframe (policy Level A). Read/display
-// tools (lokka-list-connections, lokka-get-permissions, get-auth-status, Lokka-Microsoft)
-// are NOT listed and remain allowed. See docs/EntraPulse-Lokka-MCP-Apps-Plan.md §4.
+// Lokka tools blocked when initiated from an MCP App iframe. EntraPulse owns the PRIMARY
+// connection (injected as Lokka's "env" connection via client-token mode) and owns permission
+// consent, so these stay denied with a redirect to EntraPulse's settings:
+//   - set-access-token        — EntraPulse's primary-token injection channel; the app must not
+//                               override it.
+//   - lokka-consent-permissions / add-graph-permission — permission grants belong to EntraPulse's
+//                               own auth/consent flow.
+//
+// Lokka's CONNECTION-management tools (lokka-add-user-connection, lokka-add-sp-connection,
+// switch-lokka-connection, lokka-set-active-connection, lokka-remove-connection,
+// lokka-list-connections) are deliberately NOT listed: Lokka owns additional connections, doing
+// its own sign-in and routing Graph calls through the active connection's own credential
+// (connectionManager.getActiveClient), so the Connection Manager works natively while the
+// EntraPulse-owned primary connection remains available. See docs/EntraPulse-Lokka-MCP-Apps-Plan.md §4.
 export const LOKKA_AUTH_MUTATING_TOOLS = [
-  'lokka-add-user-connection',
-  'lokka-add-sp-connection',
-  'lokka-remove-connection',
-  'lokka-set-active-connection',
-  'switch-lokka-connection',
   'lokka-consent-permissions',
   'add-graph-permission',
   'set-access-token'

@@ -78,7 +78,7 @@ export const ChatComponent: React.FC<ChatComponentProps> = () => {
   const [copyStatus, setCopyStatus] = useState<{ [key: string]: boolean }>({});
   const [sessionId, setSessionId] = useState<string>(() => `session-${Date.now()}`);
   const [activeTenantProfile, setActiveTenantProfile] = useState<{ name: string; entraConfig?: { tenantId?: string } } | null>(null);
-  
+
   // Cloud LLM status tracking
   const [cloudLLMStatus, setCloudLLMStatus] = useState<{
     isAvailable: boolean;
