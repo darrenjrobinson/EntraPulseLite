@@ -4,7 +4,7 @@
 **Method:** extracted from installed source, not docs (the spec is a moving proposal — SEP‑1865 / `ext-apps` early access). Re-verify these strings whenever `@merill/lokka` or `@modelcontextprotocol/sdk` is bumped.
 
 > All values below were read from:
-> - `node_modules/@merill/lokka/build/main.js` and `node_modules/@merill/lokka/build/ui/*.html` (Lokka 2.0.0)
+> - `node_modules/@merill/lokka/build/main.js` and `node_modules/@merill/lokka/build/ui/*.html` (Lokka 2.1.2)
 > - `node_modules/@modelcontextprotocol/sdk/dist/cjs/types.js` and `.../client/index.js` (SDK 1.29.0)
 
 ---
@@ -13,7 +13,7 @@
 
 | Component | Version |
 | --- | --- |
-| `@merill/lokka` | **2.0.0** (pinned in `package.json` + `src/mcp/constants.ts`) |
+| `@merill/lokka` | **2.1.2** (pinned in `package.json` + `src/mcp/constants.ts`) |
 | `@modelcontextprotocol/sdk` | declared `^1.12.1`, **resolved 1.29.0** |
 | SDK `LATEST_PROTOCOL_VERSION` | `2025-11-25` |
 | SDK `DEFAULT_NEGOTIATED_PROTOCOL_VERSION` | `2025-03-26` |
@@ -91,7 +91,7 @@ Lokka's bridge (`window.parent.postMessage(..., "*")`, `addEventListener("messag
 
 ## 4. UI resources (Layer A — `resources/read`)
 
-Four resources, registered unconditionally by Lokka:
+Six resources, registered unconditionally by Lokka 2.1.2:
 
 | Resource URI | Tool that opens it |
 | --- | --- |
@@ -99,10 +99,20 @@ Four resources, registered unconditionally by Lokka:
 | `ui://lokka/connections.html` | `open-lokka-connections` |
 | `ui://lokka/permissions.html` | `open-lokka-permissions` |
 | `ui://lokka/help.html` | `open-lokka-help` |
+| `ui://lokka/settings.html` | `open-lokka-settings` (umbrella over Connections + Guardrails) |
+| `ui://lokka/guardrails.html` | `open-lokka-guardrails` (user policy on model-originated calls) |
 
 > Note: the URIs end in **`.html`** (the plan's draft listed them without the extension — use these).
 
-- **mimeType:** `text/html;profile=mcp-app` (constant `UI_APP_MIME_TYPE`). The announcement blog's `text/html+mcp` is **wrong** for 2.0.0.
+> **Guardrails tool family (bridge-called, not model-exposed).** The Settings and Guardrails
+> apps configure guardrails by relaying `tools/call` over the Layer B bridge to
+> `lokka-get-guardrails-config`, `lokka-set-guardrails-enabled`, `lokka-set-guardrails-scope`,
+> `lokka-remove-guardrails-tenant`, and a directory-search resource picker. These are **allowed**
+> by `LokkaPolicy` (guardrails are user-set policy that limits only Lokka calls, not EntraPulse's
+> auth) and are not added to `LOKKA_AUTH_MUTATING_TOOLS`. Guardrails enforcement is **off by
+> default** in Lokka, so exposing these apps does not change EntraPulse's own query behaviour.
+
+- **mimeType:** `text/html;profile=mcp-app` (constant `UI_APP_MIME_TYPE`). The announcement blog's `text/html+mcp` is **wrong** for 2.1.2.
 - `resources/read` returns `{ contents:[{ uri, mimeType, text:<full HTML>, _meta }] }`. The HTML is self-contained (inline bundled JS) → mount via `<iframe srcdoc>`.
 
 ### Resource `_meta.ui` (drives sandbox/CSP)

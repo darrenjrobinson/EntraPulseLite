@@ -23,6 +23,12 @@ describe('ServerPolicy', () => {
       }
     });
 
+    it('allows the guardrails-config tools the Settings/Guardrails apps drive over the bridge', () => {
+      for (const name of ['lokka-get-guardrails-config', 'lokka-set-guardrails-enabled', 'lokka-set-guardrails-scope', 'lokka-remove-guardrails-tenant']) {
+        expect(policy.evaluate('tools/call', { name }).action).toBe('allow');
+      }
+    });
+
     it('denies the EntraPulse-owned auth tools with a redirect hint', () => {
       expect(LOKKA_AUTH_MUTATING_TOOLS).toEqual(
         expect.arrayContaining(['lokka-consent-permissions', 'add-graph-permission', 'set-access-token'])

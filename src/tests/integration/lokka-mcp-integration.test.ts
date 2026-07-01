@@ -29,7 +29,7 @@ describe('Lokka MCP Integration Tests', () => {
     enabled: true,
     port: 0, // Added required port field
     command: 'npx',
-    args: ['-y', '@merill/lokka@2.0.0'],
+    args: ['-y', '@merill/lokka@2.1.2'],
     env: {
       TENANT_ID: 'test-tenant-id',
       CLIENT_ID: 'test-client-id',

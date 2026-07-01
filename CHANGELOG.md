@@ -5,6 +5,21 @@ All notable changes to EntraPulse Lite are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.4] - Unreleased
+
+### Added
+- **Two more interactive Lokka MCP apps** exposed inline in chat, bringing
+  the total to six: **Lokka Settings** (umbrella over Connections +
+  Guardrails) and **Guardrails** (user-set policy limiting model-originated
+  Lokka calls; off by default). Open them with, e.g. *"lokka settings"* or
+  *"guardrails"*. Guardrails config is driven over the MCP Apps bridge and
+  allowed by the policy gate; EntraPulse still owns authentication.
+
+### Changed
+- **Lokka MCP upgraded to v2.1.2** (from v2.0.0). Includes the upstream
+  SSRF / token-exfiltration security fix and other stability
+  improvements. Pin updated in `package.json` and `src/mcp/constants.ts`.
+
 ## [1.2.0] - Unreleased
 
 ### Added

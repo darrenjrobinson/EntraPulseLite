@@ -55,8 +55,12 @@ describe('ExternalLokkaMCPStdioServer — tier-0 SDK transport', () => {
       { name: 'Lokka-Microsoft', description: 'graph', inputSchema: { type: 'object' }, _meta: { ui: { resourceUri: 'ui://lokka/graph-explorer.html' } } },
       { name: 'set-access-token', description: 'set token', inputSchema: { type: 'object' } },
       { name: 'get-auth-status', description: 'status', inputSchema: { type: 'object' } },
-      // Should be filtered out by the current allowlist (Phase 1).
+      // The open-* UI app tools are exposed (Phase 2) and rendered inline by McpAppFrame.
       { name: 'open-graph-explorer', description: 'ui', inputSchema: { type: 'object' } },
+      { name: 'open-lokka-settings', description: 'ui', inputSchema: { type: 'object' } },
+      { name: 'open-lokka-guardrails', description: 'ui', inputSchema: { type: 'object' } },
+      // Not on the exposed allowlist — should be filtered out (bridge-called only).
+      { name: 'lokka-set-guardrails-enabled', description: 'internal', inputSchema: { type: 'object' } },
     ]);
     mockSdkCallTool.mockResolvedValue({
       content: [{ type: 'text', text: '{}' }],
@@ -77,7 +81,7 @@ describe('ExternalLokkaMCPStdioServer — tier-0 SDK transport', () => {
       enabled: true,
       port: 0,
       command: 'npx',
-      args: ['-y', '@merill/lokka@2.0.0'],
+      args: ['-y', '@merill/lokka@2.1.2'],
       env: { TENANT_ID: 't', CLIENT_ID: 'c', ACCESS_TOKEN: 'tok', USE_CLIENT_TOKEN: 'true' },
     };
 
@@ -95,7 +99,7 @@ describe('ExternalLokkaMCPStdioServer — tier-0 SDK transport', () => {
     expect(mockSdkCtor).toHaveBeenCalledWith(
       expect.objectContaining({
         command: 'npx',
-        args: ['-y', '@merill/lokka@2.0.0'],
+        args: ['-y', '@merill/lokka@2.1.2'],
         // In client-provided-token mode with a profile-specific tenant, the per-profile CLIENT_ID
         // ('c') is replaced with Lokka's own multi-tenant client so its Connection Manager can sign
         // in to other tenants. The primary connection still authenticates with the injected token.
@@ -123,8 +127,13 @@ describe('ExternalLokkaMCPStdioServer — tier-0 SDK transport', () => {
     expect(names).toContain('Lokka-Microsoft');
     expect(names).toContain('set-access-token');
     expect(names).toContain('get-auth-status');
-    // Phase 2: the open-* UI app tools are now exposed (no longer filtered).
+    // Phase 2: the open-* UI app tools are now exposed (no longer filtered), including
+    // Lokka 2.1.2's Settings and Guardrails apps.
     expect(names).toContain('open-graph-explorer');
+    expect(names).toContain('open-lokka-settings');
+    expect(names).toContain('open-lokka-guardrails');
+    // Bridge-only tools (e.g. guardrails config) stay off the model-exposed allowlist.
+    expect(names).not.toContain('lokka-set-guardrails-enabled');
   });
 
   it('routes callTool through the SDK transport and preserves _meta', async () => {

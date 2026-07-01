@@ -15,7 +15,7 @@
 | Bridge design | **Generic MCP Apps host** (works for any MCP Apps server, not only Lokka) |
 | Lokka transport | **Move EntraPulse's Lokka transport onto the official `@modelcontextprotocol/sdk` Client** |
 
-> Note on the transport decision: Lokka 2.0.0 *already* runs on `@modelcontextprotocol/sdk ^1.29.0` on the server side. EntraPulse also already depends on the SDK (`^1.12.1`, resolved `1.29.0`) but talks to Lokka through a **hand-rolled stdio JSON-RPC client**. This plan replaces that custom client with the SDK's `Client` + `StdioClientTransport`, which is what the MCP Apps early-access SDK (`modelcontextprotocol/ext-apps`) is built against.
+> Note on the transport decision: Lokka 2.1.2 *already* runs on `@modelcontextprotocol/sdk ^1.29.0` on the server side. EntraPulse also already depends on the SDK (`^1.12.1`, resolved `1.29.0`) but talks to Lokka through a **hand-rolled stdio JSON-RPC client**. This plan replaces that custom client with the SDK's `Client` + `StdioClientTransport`, which is what the MCP Apps early-access SDK (`modelcontextprotocol/ext-apps`) is built against.
 
 ---
 
@@ -25,21 +25,24 @@
 - Electron + React (MUI) + TypeScript + webpack. MCP clients live in the **main process**; the renderer talks to them over IPC (`mcp:call`, `mcp:listTools`, `mcp:restartLokkaMCPServer`, …).
 - The Lokka path uses custom clients: `StdioMCPClient`, `EnhancedStdioMCPClient`, `ManagedLokkaMCPClient`, `PersistentLokkaMCPClient`, orchestrated by `ExternalLokkaMCPStdioServer`.
 - `StdioMCPClient.initialize()` hardcodes `protocolVersion: '2024-11-05'` and `capabilities: { tools: {} }`. **No UI/apps capability is negotiated.**
-- `src/mcp/constants.ts` pins `@merill/lokka@2.0.0` and filters exposed tools to **three**: `Lokka-Microsoft`, `set-access-token`, `get-auth-status`. The `open-*` UI tools are filtered out.
+- `src/mcp/constants.ts` pins `@merill/lokka@2.1.2` and filters exposed tools to **three**: `Lokka-Microsoft`, `set-access-token`, `get-auth-status`. The `open-*` UI tools are filtered out.
 - Auth is owned by EntraPulse: it injects a token via `set-access-token` and runs Lokka with `USE_CLIENT_TOKEN`. Supporting services already exist: `MCPAuthService`, `MCPAdminConsentHelper`, `MCPScopes`.
 - `ChatComponent.tsx` renders tool output as **stringified JSON / metadata** (`message.metadata.mcpResults`, `traceData`, etc.). There is **no iframe, no `dangerouslySetInnerHTML`, no postMessage bridge** anywhere.
 - `EnhancedLLMService` extracts text/structured content from tool results; it currently does **not** carry `_meta` through to the renderer.
 
-### Lokka 2.0.0 (verified by unpacking the published package)
-- Ships **four UI resources**, registered via `registerResource`:
-  - `ui://lokka/graph-explorer`
-  - `ui://lokka/connections`
-  - `ui://lokka/permissions`
-  - `ui://lokka/help`
-- Tools reference their UI via `_meta["ui/resourceUri"]`.
+### Lokka 2.1.2 (verified by unpacking the published package)
+- Ships **six UI resources**, registered via `registerResource` (this plan's initial draft
+  listed only the first four; Settings + Guardrails were added and are now exposed too):
+  - `ui://lokka/graph-explorer.html`
+  - `ui://lokka/connections.html`
+  - `ui://lokka/permissions.html`
+  - `ui://lokka/help.html`
+  - `ui://lokka/settings.html` (umbrella over Connections + Guardrails)
+  - `ui://lokka/guardrails.html` (user policy on model-originated calls; off by default)
+- Tools reference their UI via `_meta.ui.resourceUri` (and the deprecated flat `_meta["ui/resourceUri"]`).
 - UI resource mimeType is **`text/html;profile=mcp-app`** (note: the announcement blog showed `text/html+mcp` — the spec has since drifted, which is exactly why the contract must be pinned from code, not docs).
 - The `open-graph-explorer`, `open-lokka-connections`, `open-lokka-permissions`, `open-lokka-help` tools are present in the bundle.
-- No version bump is required — everything needed is already in the pinned `2.0.0`.
+- No version bump is required — everything needed is already in the pinned `2.1.2`.
 
 ---
 
@@ -69,7 +72,7 @@
 │      • lifecycle: start / restart / persistence                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
                                 │ stdio
-                       @merill/lokka 2.0.0 (SDK server, ui:// resources)
+                       @merill/lokka 2.1.2 (SDK server, ui:// resources)
 ```
 
 Two render triggers, one path:

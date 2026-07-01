@@ -13,25 +13,29 @@ export const LOKKA_INTERACTIVE_CLIENT_ID = 'a9bac4c3-af0d-4292-9453-9da89e390140
 // on npm) cannot reach users untested. Bump deliberately alongside the package.json
 // dependency and re-run the Lokka integration tests.
 export const LOKKA_PACKAGE_NAME = '@merill/lokka';
-export const LOKKA_VERSION = '2.0.0';
+export const LOKKA_VERSION = '2.1.2';
 export const LOKKA_PINNED_PACKAGE = `${LOKKA_PACKAGE_NAME}@${LOKKA_VERSION}`;
 export const LOKKA_NPX_ARGS = ['-y', LOKKA_PINNED_PACKAGE];
 
-// Lokka v2.0.0 registers 16 tools, including connection management
-// (lokka-add-sp-connection accepts client secrets), interactive consent, and
-// browser-launching helpers. EntraPulse Lite manages authentication and
-// permissions itself, so only these tools are exposed to the LLM.
+// Lokka v2.1.2 registers many tools, including connection management
+// (lokka-add-sp-connection accepts client secrets), interactive consent, guardrails
+// configuration, and browser-launching helpers. EntraPulse Lite manages authentication
+// and permissions itself, so only these tools are exposed to the LLM.
 //
-// The `open-*` tools open Lokka's interactive MCP Apps (graph explorer, connections,
-// permissions, help). They carry a `_meta.ui.resourceUri` and are rendered inline by
-// McpAppFrame. They are gated at runtime by the MCP Apps host's policy (auth-mutating
-// calls from those apps are intercepted), so exposing them does not let the apps bypass
-// EntraPulse's auth ownership. See docs/EntraPulse-Lokka-MCP-Apps-Plan.md.
+// The `open-*` tools open Lokka's six interactive MCP Apps (graph explorer, connections,
+// permissions, help, settings, guardrails). They carry a `_meta.ui.resourceUri` and are
+// rendered inline by McpAppFrame. They are gated at runtime by the MCP Apps host's policy
+// (auth-mutating calls from those apps are intercepted), so exposing them does not let the
+// apps bypass EntraPulse's auth ownership. Settings is an umbrella over Connections +
+// Guardrails; Guardrails is user-set policy limiting model-originated Lokka calls.
+// See docs/EntraPulse-Lokka-MCP-Apps-Plan.md.
 export const LOKKA_UI_APP_TOOLS = [
   'open-graph-explorer',
   'open-lokka-connections',
   'open-lokka-permissions',
-  'open-lokka-help'
+  'open-lokka-help',
+  'open-lokka-settings',
+  'open-lokka-guardrails'
 ];
 
 export const LOKKA_EXPOSED_TOOLS = [
@@ -55,6 +59,11 @@ export const LOKKA_EXPOSED_TOOLS = [
 // its own sign-in and routing Graph calls through the active connection's own credential
 // (connectionManager.getActiveClient), so the Connection Manager works natively while the
 // EntraPulse-owned primary connection remains available. See docs/EntraPulse-Lokka-MCP-Apps-Plan.md §4.
+//
+// Lokka's GUARDRAILS-config tools (lokka-get-guardrails-config, lokka-set-guardrails-enabled,
+// lokka-set-guardrails-scope, lokka-remove-guardrails-tenant, and the guardrails resource picker)
+// are also deliberately NOT listed: guardrails are user-set policy that only limits Lokka calls,
+// not EntraPulse's auth, so the Settings/Guardrails apps configure them natively over the bridge.
 export const LOKKA_AUTH_MUTATING_TOOLS = [
   'lokka-consent-permissions',
   'add-graph-permission',
@@ -120,6 +129,28 @@ export const LOKKA_APP_INTENTS: Array<{ tool: string; resourceUri: string; patte
       /\bhelp\s+tour\b/i,
       /\bshow\s+(me\s+)?(the\s+)?lokka\s+help\b/i,
       /\bgetting\s+started\s+with\s+lokka\b/i,
+    ],
+  },
+  {
+    // Lokka Settings is an umbrella app over Connections + Guardrails. Help app
+    // "Open it now" -> openMessage "lokka settings".
+    tool: 'open-lokka-settings',
+    resourceUri: 'ui://lokka/settings.html',
+    patterns: [
+      /\blokka\s+settings\b/i,
+      /\bmanage\s+lokka\b/i,
+      /\blokka\s+config(uration)?\b/i,
+      /\bopen\s+(the\s+)?lokka\s+settings\b/i,
+    ],
+  },
+  {
+    // Guardrails = user-set policy limiting what model tool calls may do.
+    tool: 'open-lokka-guardrails',
+    resourceUri: 'ui://lokka/guardrails.html',
+    patterns: [
+      /\b(lokka\s+)?guardrails?\b/i,
+      /\b(limit|restrict)\s+(what\s+)?(the\s+)?(ai|model)\s+can\b/i,
+      /\bmanage\s+(my\s+)?guardrails\b/i,
     ],
   },
 ];
