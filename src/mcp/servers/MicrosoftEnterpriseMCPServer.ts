@@ -191,7 +191,7 @@ export class MicrosoftEnterpriseMCPServer implements MCPServerHandlers {
   private async suggestQueries(
     params: MicrosoftGraphSuggestQueriesParams
   ): Promise<any> {
-    const { user_query } = params;
+    const { user_query } = params || {};
 
     console.log('[MicrosoftEnterpriseMCPServer] Suggesting queries for:', user_query);
 
@@ -212,7 +212,7 @@ export class MicrosoftEnterpriseMCPServer implements MCPServerHandlers {
   private async executeGraphQuery(
     params: MicrosoftGraphGetParams
   ): Promise<any> {
-    let { url, method = 'GET' } = params;
+    let { url, method = 'GET' } = params || {};
 
     // Normalize URL (remove leading slash if present)
     if (url.startsWith('/')) {
@@ -241,7 +241,7 @@ export class MicrosoftEnterpriseMCPServer implements MCPServerHandlers {
   private async listProperties(
     params: MicrosoftGraphListPropertiesParams
   ): Promise<any> {
-    const { entity_type } = params;
+    const { entity_type } = params || {};
 
     console.log('[MicrosoftEnterpriseMCPServer] Listing properties for:', entity_type);
 

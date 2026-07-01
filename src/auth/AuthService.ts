@@ -1515,7 +1515,10 @@ export class AuthService {
   async getMCPToken(features?: (keyof typeof MCP_PERMISSION_TIERS)[]): Promise<AuthToken | null> {
     if (!this.hasMCPScopes(features)) {
       console.log('⚠️  [AuthService] Missing MCP scopes, requesting them...');
-      await this.requestMCPScopes(features);
+      const consented = await this.requestMCPScopes(features);
+      if (!consented) {
+        return null;
+      }
     }
 
     // The Microsoft Enterprise MCP Server requires a token whose audience is the MCP server

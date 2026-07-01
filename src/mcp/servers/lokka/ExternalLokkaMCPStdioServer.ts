@@ -169,7 +169,7 @@ export class ExternalLokkaMCPStdioServer {
     if (!env || env.USE_CLIENT_TOKEN !== 'true' || !env.CLIENT_ID) return;
 
     const tenantId = (env.TENANT_ID || '').toLowerCase();
-    const isSpecificTenant = tenantId !== '' && tenantId !== 'common' && tenantId !== 'organizations';
+    const isSpecificTenant = tenantId !== '' && tenantId !== 'common' && tenantId !== 'organizations' && tenantId !== 'consumers';
     if (!isSpecificTenant) return;
 
     if (env.CLIENT_ID === LOKKA_INTERACTIVE_CLIENT_ID) return;
