@@ -34,7 +34,7 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
           cache: 'npm'
 
       - name: Install dependencies
@@ -54,7 +54,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-unsigned
-          path: dist-release/*.exe
+          # Include latest.yml + .blockmap (not just *.exe) so electron-updater metadata reaches the release
+          path: |
+            dist-release/*.exe
+            dist-release/*.yml
+            dist-release/*.blockmap
 
   build-macos:
     needs: setup
@@ -66,7 +70,7 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
           cache: 'npm'
 
       - name: Install dependencies
@@ -98,7 +102,7 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
           cache: 'npm'
 
       - name: Install dependencies
@@ -206,7 +210,7 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
           cache: 'npm'
 
       - name: Clean npm cache
@@ -258,10 +262,16 @@ jobs:
           
       - name: Upload release artifacts
         run: |
-          # Upload all artifacts from dist-release directory
+          # Upload installers plus auto-update metadata (latest.yml + blockmap),
+          # which electron-updater requires to detect updates.
           gh release upload ${{ github.event.inputs.version }} dist-release/*.exe --clobber
+          gh release upload ${{ github.event.inputs.version }} dist-release/*.yml --clobber
+          if (Test-Path "dist-release\*.blockmap") {
+            gh release upload ${{ github.event.inputs.version }} dist-release/*.blockmap --clobber
+          }
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: powershell
           
       - name: Upload build artifacts (on failure)
         if: failure()

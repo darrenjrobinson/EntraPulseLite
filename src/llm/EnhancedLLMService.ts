@@ -1019,6 +1019,11 @@ The current authentication session does not have sufficient permissions to acces
         if (typeof enterpriseData === 'string' && enterpriseData.includes('error occurred')) {
           console.warn('Microsoft Enterprise MCP returned an error:', enterpriseData);
           contextData += `Microsoft Enterprise MCP Error: ${enterpriseData}\n\n`;
+        } else if (enterpriseData && typeof enterpriseData === 'object' && 'error' in enterpriseData) {
+          // An error object (e.g. { error: true, message: '...' }) would otherwise be passed to
+          // processGraphApiData and produce confusing prompt context. Surface the message directly.
+          console.warn('Microsoft Enterprise MCP returned an error object:', enterpriseData);
+          contextData += `Microsoft Enterprise MCP Error: ${(enterpriseData as any).message || JSON.stringify(enterpriseData)}\n\n`;
         } else {
           const processedData = this.processGraphApiData(enterpriseData);
           if (processedData) {

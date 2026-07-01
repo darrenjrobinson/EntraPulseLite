@@ -50,29 +50,32 @@ export const UpdateNotification: React.FC = () => {
 
     if (electronAPI?.on) {
       // Update checking
-      electronAPI.on('update:checking-for-update', () => {
+      // NOTE: the preload `on` wrapper forwards Electron's raw ipcRenderer
+      // listener signature, so the IpcRendererEvent is always the FIRST arg
+      // and the payload is the SECOND. (See handleMainDebug in App.tsx.)
+      electronAPI.on('update:checking-for-update', (_event: any) => {
         showSnackbar('Checking for updates...', 'info');
       });
 
       // Update available
-      electronAPI.on('update:available', (info: UpdateInfo) => {
+      electronAPI.on('update:available', (_event: any, info: UpdateInfo) => {
         setUpdateAvailable(info);
         showSnackbar(`Update ${info.version} is available!`, 'info');
       });
 
       // Update not available
-      electronAPI.on('update:not-available', () => {
+      electronAPI.on('update:not-available', (_event: any) => {
         showSnackbar('You are using the latest version', 'success');
       });
 
       // Download progress
-      electronAPI.on('update:download-progress', (progress: UpdateProgress) => {
+      electronAPI.on('update:download-progress', (_event: any, progress: UpdateProgress) => {
         setDownloadProgress(progress);
         setIsDownloading(true);
       });
 
       // Update downloaded
-      electronAPI.on('update:downloaded', (info: UpdateInfo) => {
+      electronAPI.on('update:downloaded', (_event: any, info: UpdateInfo) => {
         setUpdateDownloaded(info);
         setIsDownloading(false);
         setDownloadProgress(null);
@@ -80,7 +83,7 @@ export const UpdateNotification: React.FC = () => {
       });
 
       // Update error
-      electronAPI.on('update:error', (error: string | Error | unknown) => {
+      electronAPI.on('update:error', (_event: any, error: string | Error | unknown) => {
         setIsDownloading(false);
         setDownloadProgress(null);
         
@@ -97,8 +100,16 @@ export const UpdateNotification: React.FC = () => {
             errorMessage = 'Update check failed - network or server error';
           }
         }
-        
-        showSnackbar(`Update error: ${errorMessage}`, 'error');
+
+        // Some "errors" from electron-updater are expected, benign states rather
+        // than real failures (no published releases yet, already up to date, or
+        // running an unpackaged dev build). Surface those as info, not a red error.
+        const isBenign = /no releases available|normal for development|latest version|up to date|not packed|dev update config/i.test(errorMessage);
+        if (isBenign) {
+          showSnackbar(errorMessage, 'info');
+        } else {
+          showSnackbar(`Update error: ${errorMessage}`, 'error');
+        }
       });
     }
 

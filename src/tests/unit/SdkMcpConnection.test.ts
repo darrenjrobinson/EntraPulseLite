@@ -40,7 +40,7 @@ import { SdkMcpConnection } from '../../mcp/clients/SdkMcpConnection';
 
 const baseOpts = {
   command: 'npx',
-  args: ['-y', '@merill/lokka@2.0.0'],
+  args: ['-y', '@merill/lokka@2.1.2'],
   env: { TENANT_ID: 't', CLIENT_ID: 'c', USE_CLIENT_TOKEN: 'true', ACCESS_TOKEN: 'tok' },
   clientInfo: { name: 'EntraPulseLite', version: '1.3.0' },
   capabilities: {},

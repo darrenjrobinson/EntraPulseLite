@@ -70,7 +70,7 @@ export interface SdkCallToolResult {
 export interface SdkMcpConnectionOptions {
   /** Executable to spawn (e.g. "npx"). */
   command: string;
-  /** Arguments (e.g. ["-y", "@merill/lokka@2.0.0"]). */
+  /** Arguments (e.g. ["-y", "@merill/lokka@2.1.2"]). */
   args: string[];
   /**
    * Environment for the spawned process. This is where the caller injects auth

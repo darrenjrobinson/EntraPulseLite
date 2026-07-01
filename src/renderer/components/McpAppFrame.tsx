@@ -1,8 +1,8 @@
 // McpAppFrame.tsx
 //
 // Phase 3 of the Lokka MCP Apps migration. Renders an interactive MCP App (Lokka's graph
-// explorer / connections / permissions / help) inline in chat inside a sandboxed iframe,
-// and implements the HOST side of the postMessage ⇄ JSON-RPC bridge.
+// explorer / connections / permissions / help / settings / guardrails) inline in chat inside
+// a sandboxed iframe, and implements the HOST side of the postMessage ⇄ JSON-RPC bridge.
 //
 // Protocol is pinned in docs/MCP_APPS_CONTRACT.md:
 //   - iframe → host (requests):  ui/initialize, tools/call, resources/read, ui/message,
@@ -217,8 +217,17 @@ export const McpAppFrame: React.FC<McpAppFrameProps> = ({ uiResource, onSendMess
               method: msg.method,
               params: msg.params,
             });
-            if (response?.error) reply({ error: response.error });
-            else reply({ result: response?.result });
+            // An IPC failure leaves `response` undefined; surface it as a JSON-RPC error rather
+            // than an empty success so the app doesn't silently treat it as a valid result.
+            if (!response) {
+              reply({ error: { code: -32603, message: 'No response from host.' } });
+              return;
+            }
+            if (response.error) {
+              reply({ error: response.error });
+              return;
+            }
+            reply({ result: response.result });
             return;
           }
 
@@ -263,6 +272,8 @@ export const McpAppFrame: React.FC<McpAppFrameProps> = ({ uiResource, onSendMess
       'ui://lokka/connections.html': 'Connections',
       'ui://lokka/permissions.html': 'Permissions',
       'ui://lokka/help.html': 'Help',
+      'ui://lokka/settings.html': 'Lokka Settings',
+      'ui://lokka/guardrails.html': 'Guardrails',
     };
     return map[resourceUri] || 'Interactive App';
   }, [resourceUri]);

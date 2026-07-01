@@ -13,6 +13,13 @@ describe('resolveUiResourceUri', () => {
     expect(resolveUiResourceUri('open-lokka-help', result)).toBe('ui://lokka/help.html');
   });
 
+  it('resolves the settings and guardrails apps from their _meta.ui.resourceUri', () => {
+    const settings = { _meta: { ui: { resourceUri: 'ui://lokka/settings.html' } }, structuredContent: { lokkaApp: 'settings' } };
+    expect(resolveUiResourceUri('open-lokka-settings', settings)).toBe('ui://lokka/settings.html');
+    const guardrails = { _meta: { ui: { resourceUri: 'ui://lokka/guardrails.html' } }, structuredContent: { lokkaApp: 'guardrails' } };
+    expect(resolveUiResourceUri('open-lokka-guardrails', guardrails)).toBe('ui://lokka/guardrails.html');
+  });
+
   it('prefers nested over flat when both present', () => {
     const result = { _meta: { ui: { resourceUri: 'ui://nested' }, 'ui/resourceUri': 'ui://flat' } };
     expect(resolveUiResourceUri('x', result)).toBe('ui://nested');
@@ -67,6 +74,18 @@ describe('detectLokkaAppIntent', () => {
     }
   });
 
+  it('routes settings intents to open-lokka-settings', () => {
+    for (const q of ['lokka settings', 'manage lokka', 'lokka configuration', 'open the lokka settings']) {
+      expect(detectLokkaAppIntent(q)).toEqual({ tool: 'open-lokka-settings', resourceUri: 'ui://lokka/settings.html' });
+    }
+  });
+
+  it('routes guardrails intents to open-lokka-guardrails', () => {
+    for (const q of ['guardrails', 'lokka guardrails', 'manage my guardrails', 'limit what the ai can do']) {
+      expect(detectLokkaAppIntent(q)).toEqual({ tool: 'open-lokka-guardrails', resourceUri: 'ui://lokka/guardrails.html' });
+    }
+  });
+
   it('does NOT hijack ordinary Graph queries', () => {
     for (const q of ['list all users', 'show my group memberships', 'how many guest accounts are there', 'get the CEO of the company', '']) {
       expect(detectLokkaAppIntent(q)).toBeNull();
@@ -75,12 +94,14 @@ describe('detectLokkaAppIntent', () => {
 });
 
 describe('Lokka exposed-tools allowlist', () => {
-  it('exposes the four open-* UI app tools alongside the core tools', () => {
+  it('exposes the six open-* UI app tools alongside the core tools', () => {
     expect(LOKKA_UI_APP_TOOLS).toEqual([
       'open-graph-explorer',
       'open-lokka-connections',
       'open-lokka-permissions',
       'open-lokka-help',
+      'open-lokka-settings',
+      'open-lokka-guardrails',
     ]);
     for (const t of LOKKA_UI_APP_TOOLS) {
       expect(LOKKA_EXPOSED_TOOLS).toContain(t);

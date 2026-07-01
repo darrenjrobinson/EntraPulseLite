@@ -17,7 +17,7 @@ A free community desktop application that provides natural language querying of 
 - **Real-time LLM Status Monitoring**: Dynamic tracking of LLM availability with automatic UI updates
 - **Automatic Updates**: Seamless updates delivered through GitHub Releases with code signing and user control
 - **Built-in MCP Servers** (Recommended: Enable Both for Best Coverage): 
-  - **Lokka MCP** using the official @merill/lokka package (v2.0.0) - Fast, privacy-first Microsoft Graph and Azure Resource Manager API access for common queries, with **interactive MCP apps** (Graph Explorer, Connections, Permissions, Help) rendered inline in chat
+  - **Lokka MCP** using the official @merill/lokka package (v2.1.2) - Fast, privacy-first Microsoft Graph and Azure Resource Manager API access for common queries, with **interactive MCP apps** (Graph Explorer, Connections, Permissions, Help, Settings, Guardrails) rendered inline in chat
   - **Microsoft Enterprise MCP** (Cloud) - Enterprise features: Audit Logs, PIM, Conditional Access, Device Compliance
   - Microsoft Docs MCP using the official MicrosoftDocs/MCP package for Microsoft Learn documentation and official Microsoft documentation
   - Fetch MCP for general web searches and documentation retrieval
@@ -230,14 +230,16 @@ Lokka MCP is ideal for common Microsoft Graph queries:
 
 #### Interactive MCP Apps (Lokka v2)
 
-EntraPulse Lite supports **all four** of Lokka 2.0's interactive **MCP Apps**, rendered **inline in chat** so you can explore results visually instead of reading raw JSON:
+EntraPulse Lite supports **all six** of Lokka 2.1's interactive **MCP Apps**, rendered **inline in chat** so you can explore results visually instead of reading raw JSON:
 
 - **Graph Explorer** - auto-opens on any Graph query. Shows the exact request (method, API version, path, query parameters) and the results as sortable tables or JSON, and lets you tweak and re-run the query. Compact by default; expands when you open the query.
 - **Multi-Tenant Connection Manager** - sign into one or more tenants (as a user or service principal) and switch the active connection. Open it by asking, e.g. *"open the connection manager"*, *"add a tenant"*, *"switch to a different tenant"*.
 - **Permissions Manager** - review the Graph scopes on your current token and search the full permission catalog. Open it with, e.g. *"open the permissions manager"*, *"review my permissions"*, *"what scopes do I have"*.
 - **Visual Help** - a guided tour of what Lokka can do. Open it with, e.g. *"what can Lokka do?"* or *"show me the Lokka help"*.
+- **Lokka Settings** - one place to manage your Lokka connections and guardrails. Open it with, e.g. *"lokka settings"* or *"manage Lokka"*.
+- **Guardrails** - user-set policy limiting what model-initiated Lokka calls may do (allowed HTTP methods, API allow/deny lists, per-resource id allowlists). Off by default; open it with, e.g. *"guardrails"* or *"limit what the AI can do"*.
 
-The Connections, Permissions, and Help apps open automatically when your request matches one of those intents; otherwise queries run normally and the Graph Explorer is shown.
+The Connections, Permissions, Help, Settings, and Guardrails apps open automatically when your request matches one of those intents; otherwise queries run normally and the Graph Explorer is shown.
 
 How it works and how it stays secure:
 - Apps run in a **sandboxed iframe** (`allow-scripts`, no same-origin) with a per-app **Content-Security-Policy** derived from the app's manifest. Only the official SDK transport serves these `ui://` resources.

@@ -103,7 +103,7 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
           cache: 'npm'
 
       - name: Install dependencies
@@ -118,8 +118,39 @@ jobs:
           CI: true
           NODE_OPTIONS: --max-old-space-size=4096
 
-      - name: Build application (Windows signed)
-        run: npm run build && npx electron-builder --win --publish=never
+      - name: Build application (Windows, signed with unsigned fallback)
+        shell: powershell
+        run: |
+          npm run build
+          if ($LASTEXITCODE -ne 0) { Write-Error "App build (webpack) failed"; exit 1 }
+
+          $signed = $false
+          if (-not [string]::IsNullOrWhiteSpace($env:WIN_CSC_LINK)) {
+            Write-Host "Code-signing certificate provided - attempting SIGNED Windows build..."
+            npx electron-builder --win --publish=never
+            if ($LASTEXITCODE -eq 0) {
+              $signed = $true
+              Write-Host "Signed Windows build succeeded"
+            } else {
+              Write-Host "::warning title=Windows signing failed::Signed build failed (exit $LASTEXITCODE) - the code-signing certificate is likely expired, revoked, or invalid. Falling back to an UNSIGNED build so the release and latest.yml are still produced."
+            }
+          } else {
+            Write-Host "::warning title=No signing cert::WIN_CSC_LINK secret is empty - building Windows UNSIGNED."
+          }
+
+          if (-not $signed) {
+            # Remove signing inputs so electron-builder produces an unsigned build rather than failing
+            Remove-Item Env:WIN_CSC_LINK -ErrorAction SilentlyContinue
+            Remove-Item Env:WIN_CSC_KEY_PASSWORD -ErrorAction SilentlyContinue
+            Remove-Item Env:CSC_LINK -ErrorAction SilentlyContinue
+            Remove-Item Env:CSC_KEY_PASSWORD -ErrorAction SilentlyContinue
+            $env:CSC_IDENTITY_AUTO_DISCOVERY = "false"
+            npx electron-builder --win --publish=never
+            if ($LASTEXITCODE -ne 0) { Write-Error "Unsigned Windows build failed"; exit 1 }
+            Write-Host "Unsigned Windows build succeeded"
+            "## Windows v${{ github.event.inputs.version }} built UNSIGNED" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            "The code-signing certificate was unavailable/expired, so the Windows installer is UNSIGNED. Users may see a SmartScreen warning, and clients already running a signed build may refuse the auto-update signature check. Renew the DigiCert cert, update the WIN_CSC_LINK / WIN_CSC_KEY_PASSWORD secrets, and re-release to restore signed updates." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          }
         env:
           NODE_OPTIONS: --max-old-space-size=8192
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
@@ -136,6 +167,21 @@ jobs:
           } else {
             Write-Host "No Windows executables found in dist-release"
             Get-ChildItem "dist-release" -Recurse | Where-Object { $_.Name -like "*.exe" } | ForEach-Object { Write-Host "Found: $($_.FullName)" }
+          }
+          # Upload auto-update metadata (latest.yml + blockmap) required by electron-updater
+          if (Test-Path "dist-release\*.yml") {
+            Write-Host "Found Windows update metadata:"
+            Get-ChildItem "dist-release\*.yml" | ForEach-Object { Write-Host "  $_" }
+            Get-ChildItem "dist-release\*.yml" | ForEach-Object {
+              gh release upload "${{ github.event.inputs.version }}" "$_" --clobber
+            }
+          } else {
+            Write-Host "WARNING: No latest.yml found in dist-release - auto-update will not work"
+          }
+          if (Test-Path "dist-release\*.blockmap") {
+            Get-ChildItem "dist-release\*.blockmap" | ForEach-Object {
+              gh release upload "${{ github.event.inputs.version }}" "$_" --clobber
+            }
           }
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -155,7 +201,7 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
           cache: 'npm'
 
       - name: Install dependencies
@@ -198,6 +244,22 @@ jobs:
             echo "No macOS ZIP files found in dist-release"
             find dist-release -name "*.zip" -type f
           fi
+
+          # Upload auto-update metadata (latest-mac.yml + blockmap) required by electron-updater
+          if ls dist-release/*.yml 2>/dev/null; then
+            echo "Found macOS update metadata:"
+            ls -la dist-release/*.yml
+            for file in dist-release/*.yml; do
+              gh release upload "${{ github.event.inputs.version }}" "$file" --clobber
+            done
+          else
+            echo "WARNING: No latest-mac.yml found in dist-release - auto-update will not work"
+          fi
+          if ls dist-release/*.blockmap 2>/dev/null; then
+            for file in dist-release/*.blockmap; do
+              gh release upload "${{ github.event.inputs.version }}" "$file" --clobber
+            done
+          fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -215,7 +277,7 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
           cache: 'npm'
 
       - name: Install dependencies
@@ -279,6 +341,17 @@ jobs:
           else
             echo "No Linux TAR.GZ files found in dist-release"
             find dist-release -name "*.tar.gz" -type f
+          fi
+
+          # Upload auto-update metadata (latest-linux.yml) required by electron-updater
+          if ls dist-release/*.yml 2>/dev/null; then
+            echo "Found Linux update metadata:"
+            ls -la dist-release/*.yml
+            for file in dist-release/*.yml; do
+              gh release upload "${{ github.event.inputs.version }}" "$file" --clobber
+            done
+          else
+            echo "WARNING: No latest-linux.yml found in dist-release - auto-update will not work"
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

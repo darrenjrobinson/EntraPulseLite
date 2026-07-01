@@ -17,7 +17,22 @@ describe('ServerPolicy', () => {
       expect(policy.evaluate('resources/read', { uri: 'ui://lokka/graph-explorer.html' }).action).toBe('allow');
     });
 
-    it('denies every auth-mutating tool with a redirect hint', () => {
+    it('allows Lokka-owned connection-management tools to relay (add/switch/set-active/remove)', () => {
+      for (const name of ['lokka-add-user-connection', 'lokka-add-sp-connection', 'switch-lokka-connection', 'lokka-set-active-connection', 'lokka-remove-connection']) {
+        expect(policy.evaluate('tools/call', { name }).action).toBe('allow');
+      }
+    });
+
+    it('allows the guardrails-config tools the Settings/Guardrails apps drive over the bridge', () => {
+      for (const name of ['lokka-get-guardrails-config', 'lokka-set-guardrails-enabled', 'lokka-set-guardrails-scope', 'lokka-remove-guardrails-tenant']) {
+        expect(policy.evaluate('tools/call', { name }).action).toBe('allow');
+      }
+    });
+
+    it('denies the EntraPulse-owned auth tools with a redirect hint', () => {
+      expect(LOKKA_AUTH_MUTATING_TOOLS).toEqual(
+        expect.arrayContaining(['lokka-consent-permissions', 'add-graph-permission', 'set-access-token'])
+      );
       for (const name of LOKKA_AUTH_MUTATING_TOOLS) {
         const d = policy.evaluate('tools/call', { name });
         expect(d.action).toBe('deny');
@@ -69,11 +84,17 @@ describe('McpAppsHost', () => {
     expect(res.error).toBeUndefined();
   });
 
-  it('blocks an auth-mutating tool with a policy-denied error and does NOT call the connection', async () => {
-    const res = await host.handleRpc('external-lokka', { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'lokka-add-sp-connection', arguments: {} } });
+  it('blocks a still-denied auth-mutating tool with a policy-denied error and does NOT call the connection', async () => {
+    const res = await host.handleRpc('external-lokka', { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'lokka-consent-permissions', arguments: {} } });
     expect(conn.callTool).not.toHaveBeenCalled();
     expect(res.error?.code).toBe(-32001);
     expect(res.error?.data?.redirect).toContain('settings');
+  });
+
+  it('relays a Lokka connection-management tool (add-user-connection) to the connection', async () => {
+    const res = await host.handleRpc('external-lokka', { jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'lokka-add-user-connection', arguments: { tenantId: 'contoso.com' } } });
+    expect(conn.callTool).toHaveBeenCalledWith('lokka-add-user-connection', { tenantId: 'contoso.com' });
+    expect(res.error).toBeUndefined();
   });
 
   it('forwards resources/read', async () => {

@@ -38,7 +38,7 @@ describe('ExternalLokkaMCPStdioServer Four-Tier Architecture', () => {
       enabled: true,
       port: 0, // Not used for stdio but required by interface
       command: 'npx',
-      args: ['-y', '@merill/lokka@2.0.0'],
+      args: ['-y', '@merill/lokka@2.1.2'],
       env: {
         TENANT_ID: 'test-tenant-id',
         CLIENT_ID: 'test-client-id',
@@ -295,7 +295,7 @@ describe('Lokka MCP Server Configuration Validation', () => {
       enabled: true,
       port: 0,
       command: 'npx',
-      args: ['-y', '@merill/lokka@2.0.0'],
+      args: ['-y', '@merill/lokka@2.1.2'],
       env: {
         TENANT_ID: 'common',
         CLIENT_ID: '14d82eec-204b-4c2f-b7e8-296a70dab67e', // Microsoft Graph PowerShell
@@ -315,7 +315,7 @@ describe('Lokka MCP Server Configuration Validation', () => {
       enabled: true,
       port: 0,
       command: 'npx',
-      args: ['-y', '@merill/lokka@2.0.0'],
+      args: ['-y', '@merill/lokka@2.1.2'],
       env: {
         TENANT_ID: 'custom-tenant-id',
         CLIENT_ID: 'custom-client-id',

@@ -10,7 +10,7 @@ import { ManagedLokkaMCPClient } from '../../clients/ManagedLokkaMCPClient';
 import { PersistentLokkaMCPClient } from '../../clients/PersistentLokkaMCPClient';
 import { SdkMcpConnection } from '../../clients/SdkMcpConnection';
 import { ConfigService } from '../../../shared/ConfigService';
-import { LOKKA_NPX_ARGS, LOKKA_EXPOSED_TOOLS } from '../../constants';
+import { LOKKA_NPX_ARGS, LOKKA_EXPOSED_TOOLS, LOKKA_INTERACTIVE_CLIENT_ID } from '../../constants';
 import { VERSION } from '../../../shared/version';
 
 export interface ExternalLokkaMCPServerConfig extends MCPServerConfig {
@@ -155,9 +155,44 @@ export class ExternalLokkaMCPStdioServer {
     }
   }
 
+  /**
+   * In client-provided-token mode, ensure Lokka uses its OWN multi-tenant client id so its Connection
+   * Manager can sign in to other tenants. The per-profile app (and EntraPulse Lite's own app) is
+   * single-tenant and fails interactive sign-in to other tenants (AADSTS700016); Lokka's published
+   * client (LOKKA_INTERACTIVE_CLIENT_ID) is consentable in any tenant. Only rewrites a profile-specific
+   * config (USE_CLIENT_TOKEN with a non-'common' TENANT_ID); the already-multi-tenant modes (Enhanced
+   * Graph Access / default delegated, which use TENANT_ID='common') are left untouched. Idempotent and
+   * safe to call on every (re)start.
+   */
+  private applyMultiTenantClientIdForAddedConnections(): void {
+    const env = this.config.env;
+    if (!env || env.USE_CLIENT_TOKEN !== 'true' || !env.CLIENT_ID) return;
+
+    const tenantId = (env.TENANT_ID || '').toLowerCase();
+    const isSpecificTenant = tenantId !== '' && tenantId !== 'common' && tenantId !== 'organizations' && tenantId !== 'consumers';
+    if (!isSpecificTenant) return;
+
+    if (env.CLIENT_ID === LOKKA_INTERACTIVE_CLIENT_ID) return;
+
+    console.log(
+      `🔧 [Lokka Startup] Client-token mode: substituting Lokka's multi-tenant CLIENT_ID (${LOKKA_INTERACTIVE_CLIENT_ID.substring(0, 8)}…) ` +
+      `for Lokka's add-connection sign-ins (was ${env.CLIENT_ID.substring(0, 8)}…). Primary connection still uses the injected token.`
+    );
+    this.config.env = { ...env, CLIENT_ID: LOKKA_INTERACTIVE_CLIENT_ID };
+  }
+
   private async performStartup(): Promise<void> {
     console.log('🚀 [Lokka Startup] Starting Lokka MCP server...');
-    
+
+    // Client-token mode + a profile-specific CLIENT_ID: EntraPulse injects the primary connection's
+    // ACCESS_TOKEN (Lokka's AuthManager ignores CLIENT_ID here), but Lokka's Connection Manager reuses
+    // process.env.CLIENT_ID for interactive "add connection" sign-ins. A per-profile single-tenant app
+    // can't sign in to OTHER tenants (AADSTS700016), so swap in EntraPulse's multi-tenant client for the
+    // add-connection path. Multi-tenant auth modes already use TENANT_ID='common' and are left untouched;
+    // the primary connection still authenticates with the injected token (CLIENT_ID is otherwise only the
+    // env connection's cosmetic identifier in this mode).
+    this.applyMultiTenantClientIdForAddedConnections();
+
     // Add debugging that will show in DevTools via IPC
     const env = this.config.env || {};
     const debugInfo = {

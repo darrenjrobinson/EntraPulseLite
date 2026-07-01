@@ -12,7 +12,7 @@
 
 import { MCPServerConfig } from '../../types';
 import { MCPServerHandlers } from './MCPServerFactory';
-import { MicrosoftEnterpriseMCPClient, MCPResponse } from '../clients/MicrosoftEnterpriseMCPClient';
+import { MicrosoftEnterpriseMCPClient } from '../clients/MicrosoftEnterpriseMCPClient';
 import { AuthService } from '../../auth/AuthService';
 import { MCP_PERMISSION_TIERS } from '../../auth/MCPScopes';
 
@@ -190,26 +190,19 @@ export class MicrosoftEnterpriseMCPServer implements MCPServerHandlers {
    */
   private async suggestQueries(
     params: MicrosoftGraphSuggestQueriesParams
-  ): Promise<MicrosoftGraphSuggestQueriesResponse> {
-    const { user_query, top = 5 } = params;
+  ): Promise<any> {
+    const { user_query } = params || {};
 
     console.log('[MicrosoftEnterpriseMCPServer] Suggesting queries for:', user_query);
 
-    // Cache key includes the query and top parameter
-    const cacheOptions = { skipCache: false };
+    // The Microsoft Enterprise MCP server exposes this as an MCP tool. Invoke it via the
+    // client's callTool helper (it has no HTTP-style post()). The preview tool takes a
+    // generic, anonymized intent description only.
+    const result = await this.client.suggestQueries(user_query);
 
-    const response = await this.client.post<MicrosoftGraphSuggestQueriesResponse>(
-      '/tools/microsoft_graph_suggest_queries',
-      { user_query, top },
-      cacheOptions
-    );
+    console.log('[MicrosoftEnterpriseMCPServer] Suggestions received');
 
-    console.log('[MicrosoftEnterpriseMCPServer] Suggestions received:', {
-      count: response.data.suggestions?.length || 0,
-      cached: response.cached
-    });
-
-    return response.data;
+    return result;
   }
 
   /**
@@ -218,8 +211,8 @@ export class MicrosoftEnterpriseMCPServer implements MCPServerHandlers {
    */
   private async executeGraphQuery(
     params: MicrosoftGraphGetParams
-  ): Promise<MicrosoftGraphGetResponse> {
-    let { url, method = 'GET' } = params;
+  ): Promise<any> {
+    let { url, method = 'GET' } = params || {};
 
     // Normalize URL (remove leading slash if present)
     if (url.startsWith('/')) {
@@ -232,20 +225,13 @@ export class MicrosoftEnterpriseMCPServer implements MCPServerHandlers {
 
     console.log('[MicrosoftEnterpriseMCPServer] Executing Graph query:', url);
 
-    // Don't cache actual Graph queries (data freshness is important)
-    const response = await this.client.post<MicrosoftGraphGetResponse>(
-      '/tools/microsoft_graph_get',
-      { url, method },
-      { skipCache: true }
-    );
+    // Invoke the upstream microsoft_graph_get tool via the MCP client. The MCP server
+    // enforces user privileges and granted scopes; only GET is supported in preview.
+    const result = await this.client.graphGet(url);
 
-    console.log('[MicrosoftEnterpriseMCPServer] Query executed successfully:', {
-      hasData: !!response.data.data,
-      hasNextLink: !!response.data.nextLink,
-      count: response.data.count
-    });
+    console.log('[MicrosoftEnterpriseMCPServer] Query executed successfully');
 
-    return response.data;
+    return result;
   }
 
   /**
@@ -254,25 +240,17 @@ export class MicrosoftEnterpriseMCPServer implements MCPServerHandlers {
    */
   private async listProperties(
     params: MicrosoftGraphListPropertiesParams
-  ): Promise<MicrosoftGraphListPropertiesResponse> {
-    const { entity_type } = params;
+  ): Promise<any> {
+    const { entity_type } = params || {};
 
     console.log('[MicrosoftEnterpriseMCPServer] Listing properties for:', entity_type);
 
-    // Cache entity schemas for 24 hours (they rarely change)
-    const response = await this.client.post<MicrosoftGraphListPropertiesResponse>(
-      '/tools/microsoft_graph_list_properties',
-      { entity_type },
-      { skipCache: false }
-    );
+    // Invoke the upstream microsoft_graph_list_properties tool via the MCP client.
+    const result = await this.client.listProperties(entity_type);
 
-    console.log('[MicrosoftEnterpriseMCPServer] Properties listed:', {
-      entity_type: response.data.entity_type,
-      propertyCount: response.data.properties?.length || 0,
-      cached: response.cached
-    });
+    console.log('[MicrosoftEnterpriseMCPServer] Properties listed');
 
-    return response.data;
+    return result;
   }
 
   /**

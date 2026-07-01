@@ -8,6 +8,7 @@ import { EnhancedStdioMCPClient } from '../../mcp/clients/EnhancedStdioMCPClient
 import { StdioMCPClient } from '../../mcp/clients/StdioMCPClient';
 import { MCPAuthService } from '../../mcp/auth/MCPAuthService';
 import { ConfigService } from '../../shared/ConfigService';
+import { LOKKA_INTERACTIVE_CLIENT_ID } from '../../mcp/constants';
 
 // Mock dependencies
 jest.mock('../../mcp/auth/MCPAuthService');
@@ -28,7 +29,7 @@ describe('Lokka MCP Integration Tests', () => {
     enabled: true,
     port: 0, // Added required port field
     command: 'npx',
-    args: ['-y', '@merill/lokka@2.0.0'],
+    args: ['-y', '@merill/lokka@2.1.2'],
     env: {
       TENANT_ID: 'test-tenant-id',
       CLIENT_ID: 'test-client-id',
@@ -93,7 +94,9 @@ describe('Lokka MCP Integration Tests', () => {
 
       expect(PersistentLokkaMCPClient).toHaveBeenCalledWith({
         TENANT_ID: 'test-tenant-id',
-        CLIENT_ID: 'test-client-id',
+        // Client-token mode + profile-specific tenant: the per-profile CLIENT_ID is replaced with
+        // Lokka's multi-tenant client so its Connection Manager can sign in to other tenants.
+        CLIENT_ID: LOKKA_INTERACTIVE_CLIENT_ID,
         ACCESS_TOKEN: 'test-access-token',
         USE_CLIENT_TOKEN: 'true',
         LOKKA_USE_SDK_TRANSPORT: 'false'

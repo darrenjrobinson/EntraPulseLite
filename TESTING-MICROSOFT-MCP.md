@@ -105,7 +105,10 @@ To test actual queries against Microsoft's MCP endpoint, you need:
    ```powershell
    Install-Module Microsoft.Entra.Beta -Force -AllowClobber
    Connect-Entra -Scopes 'Application.ReadWrite.All','Directory.Read.All','DelegatedPermissionGrant.ReadWrite.All'
-   Grant-EntraBetaMCPServerPermission -ApplicationName 'EntraPulseLite'
+   # The cmdlet only accepts pre-registered MCP client app names: ChatGPT, Claude,
+   # VisualStudioCode, or VisualStudio. Granting any of these enables the MCP
+   # permissions at the tenant level, which EntraPulse Lite then leverages.
+   Grant-EntraBetaMCPServerPermission -ApplicationName 'ChatGPT'
    ```
 
 2. **Valid Credentials** - Configure your Entra app:
