@@ -11,7 +11,15 @@ import { UnifiedLLMService } from './UnifiedLLMService';
 import { UnifiedPromptService, PermissionContext } from './UnifiedPromptService';
 import { conversationContextManager, ConversationContextManager } from '../shared/ConversationContextManager';
 import { MCPQueryRouter, RoutingDecision } from '../mcp/routing/MCPQueryRouter';
-import { LOKKA_NPX_ARGS, LOKKA_TOOL_DEFINITION_UI_RESOURCES, graphApiVersionFromBeta, detectLokkaAppIntent } from '../mcp/constants';
+import {
+  LOKKA_NPX_ARGS,
+  LOKKA_TOOL_DEFINITION_UI_RESOURCES,
+  graphApiVersionFromBeta,
+  detectLokkaAppIntent,
+  detectPolyarchyAppIntent,
+  POLYARCHY_SERVER_ID,
+  POLYARCHY_TOOL_DEFINITION_UI_RESOURCES
+} from '../mcp/constants';
 import { McpUiResourceRef, resolveUiResourceUri } from '../mcp/types';
 
 export interface QueryAnalysis {
@@ -35,6 +43,7 @@ export interface EnhancedLLMResponse {
     lokkaResult?: any;
     microsoftDocsResult?: any;
     microsoftEnterpriseResult?: any;
+    polyarchyResult?: any;
   };
   mcpServerUsed?: 'lokka' | 'microsoft-enterprise';
   finalResponse: string;
@@ -155,7 +164,7 @@ export class EnhancedLLMService {
       const analysis = await this.analyzeQuery(userQuery, conversationContext);
       trace.push(`Query analysis completed: ${analysis.reasoning}`);// Step 2: MCP servers are automatically initialized in constructor
       trace.push('MCP servers ready');      // Step 3: Execute MCP operations based on analysis
-      const mcpResults: { fetchResult?: any; lokkaResult?: any; microsoftDocsResult?: any; microsoftEnterpriseResult?: any } = {};
+      const mcpResults: { fetchResult?: any; lokkaResult?: any; microsoftDocsResult?: any; microsoftEnterpriseResult?: any; polyarchyResult?: any } = {};
       let mcpServerUsed: 'lokka' | 'microsoft-enterprise' | undefined = undefined;
       let uiResource: McpUiResourceRef | undefined = undefined; // MCP Apps: UI to render inline
 
@@ -163,8 +172,34 @@ export class EnhancedLLMService {
       // review permissions, or get help, open the matching Lokka app inline instead of
       // running a Graph query. open-* results carry _meta.ui.resourceUri directly.
       let appOpened = false;
+
+      // Polyarchy first: "visualize <person>'s identity" / "open the polyarchy" opens the
+      // identity visualizer (visualize-identity's UI link lives on its tool definition).
+      const polyarchyEnabled = this.mcpConfig?.polyarchy?.enabled !== false;
+      const polyarchyIntent = detectPolyarchyAppIntent(userQuery);
+      if (polyarchyIntent && polyarchyEnabled) {
+        try {
+          trace.push(`Opening Polyarchy MCP app via intent: ${polyarchyIntent.tool}`);
+          const appResult = await this.mcpClient.callTool(POLYARCHY_SERVER_ID, polyarchyIntent.tool, polyarchyIntent.args);
+          mcpResults.polyarchyResult = appResult;
+          const resourceUri = resolveUiResourceUri(polyarchyIntent.tool, appResult, POLYARCHY_TOOL_DEFINITION_UI_RESOURCES) || polyarchyIntent.resourceUri;
+          uiResource = {
+            serverId: POLYARCHY_SERVER_ID,
+            resourceUri,
+            toolName: polyarchyIntent.tool,
+            initialData: { arguments: polyarchyIntent.args, structuredContent: appResult?.structuredContent, content: appResult?.content, isError: appResult?.isError }
+          };
+          appOpened = true;
+          trace.push('Polyarchy MCP app opened');
+        } catch (error) {
+          const errorMsg = `Failed to open Polyarchy MCP app (${polyarchyIntent.tool}): ${error}`;
+          errors.push(errorMsg);
+          trace.push(errorMsg);
+        }
+      }
+
       const lokkaEnabled = this.mcpConfig?.lokka?.enabled !== false;
-      const appIntent = detectLokkaAppIntent(userQuery);
+      const appIntent = appOpened ? null : detectLokkaAppIntent(userQuery);
       if (appIntent && lokkaEnabled) {
         try {
           trace.push(`Opening Lokka MCP app via intent: ${appIntent.tool}`);
@@ -796,12 +831,25 @@ Respond ONLY with a JSON object in this exact format:
    * Generate the final response using LLM with MCP results
    */
   private async generateFinalResponse(
-    originalQuery: string, 
-    analysis: QueryAnalysis, 
-    mcpResults: { fetchResult?: any; lokkaResult?: any; microsoftDocsResult?: any; microsoftEnterpriseResult?: any }
+    originalQuery: string,
+    analysis: QueryAnalysis,
+    mcpResults: { fetchResult?: any; lokkaResult?: any; microsoftDocsResult?: any; microsoftEnterpriseResult?: any; polyarchyResult?: any }
   ): Promise<string> {
-    
+
     let contextData = '';
+
+    // Polyarchy app opened inline: tell the LLM so its answer acknowledges the
+    // visualization instead of trying to fabricate Graph data.
+    if (mcpResults.polyarchyResult) {
+      const polyarchyText = mcpResults.polyarchyResult.content?.find((item: any) => item.type === 'text')?.text;
+      if (mcpResults.polyarchyResult.isError) {
+        contextData += `Polyarchy Identity Visualizer could not open: ${polyarchyText || 'unknown error'}\n\n`;
+      } else {
+        contextData += `The Polyarchy Identity Visualizer (an interactive identity-relationship graph) has been opened inline in the chat for this request. ` +
+          `${polyarchyText ? `Tool response: ${polyarchyText}\n` : ''}` +
+          `Briefly tell the user the visualization is displayed and they can click nodes to explore, double-click to change focus, and use the toolbar to switch between org/groups/attributes/access views.\n\n`;
+      }
+    }
     
     // Prepare context from Microsoft Docs MCP results (preferred)
     if (mcpResults.microsoftDocsResult) {

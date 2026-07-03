@@ -11,7 +11,11 @@
 //
 // See docs/EntraPulse-Lokka-MCP-Apps-Plan.md §4 and docs/MCP_APPS_CONTRACT.md.
 
-import { LOKKA_AUTH_MUTATING_TOOLS } from '../constants';
+import {
+  LOKKA_AUTH_MUTATING_TOOLS,
+  POLYARCHY_AUTH_MUTATING_TOOLS,
+  POLYARCHY_SERVER_ID,
+} from '../constants';
 
 export interface PolicyDecision {
   action: 'allow' | 'deny';
@@ -91,6 +95,12 @@ export class LokkaPolicy implements ServerPolicy {
 export function policyForServer(serverId: string): ServerPolicy {
   if (serverId === 'external-lokka') {
     return new LokkaPolicy(serverId);
+  }
+  if (serverId === POLYARCHY_SERVER_ID) {
+    // Same shape as Lokka: EntraPulse owns the token channel, so the Polyarchy app
+    // must not call set-access-token; everything else (polyarchy-expand, get-photo,
+    // get-manager, resource reads) relays freely.
+    return new LokkaPolicy(serverId, POLYARCHY_AUTH_MUTATING_TOOLS);
   }
   return new DefaultPolicy(serverId);
 }

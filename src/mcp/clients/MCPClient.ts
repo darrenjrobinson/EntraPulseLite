@@ -192,12 +192,13 @@ export class MCPClient {
       }
     }
 
-    // Handle external-lokka server - needs direct handling via server manager
-    // Lokka uses tools/call directly without the generic call() path
-    if (server.type === 'external-lokka') {
-      console.log('🔧 MCPClient: Server type is external-lokka, using direct server manager');
+    // Handle external stdio servers (Lokka, Polyarchy) - need direct handling via
+    // server manager: tools/call goes straight to the server's handleRequest without
+    // the generic call() path
+    if (server.type === 'external-lokka' || server.type === 'entrapulse-polyarchy') {
+      console.log(`🔧 MCPClient: Server type is ${server.type}, using direct server manager`);
       try {
-        // Format the request properly for Lokka's handleRequest
+        // Format the request properly for the server's handleRequest
         const request = {
           id: Date.now(),
           method: 'tools/call',
@@ -206,17 +207,17 @@ export class MCPClient {
             arguments: arguments_
           }
         };
-        
+
         const response = await this.serverManager.handleRequest(serverName, request);
-        
+
         if (response.error) {
-          throw new Error(response.error.message || 'Lokka MCP request failed');
+          throw new Error(response.error.message || `${server.type} MCP request failed`);
         }
-        
-        console.log('✅ MCPClient: Lokka MCP tool call succeeded');
+
+        console.log(`✅ MCPClient: ${server.type} MCP tool call succeeded`);
         return response.result;
       } catch (error) {
-        console.error('❌ MCPClient: Lokka MCP tool call failed:', error);
+        console.error(`❌ MCPClient: ${server.type} MCP tool call failed:`, error);
         throw error;
       }
     }

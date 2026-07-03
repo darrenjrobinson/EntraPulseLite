@@ -18,6 +18,7 @@ A free community desktop application that provides natural language querying of 
 - **Automatic Updates**: Seamless updates delivered through GitHub Releases with code signing and user control
 - **Built-in MCP Servers** (Recommended: Enable Both for Best Coverage): 
   - **Lokka MCP** using the official @merill/lokka package (v2.1.2) - Fast, privacy-first Microsoft Graph and Azure Resource Manager API access for common queries, with **interactive MCP apps** (Graph Explorer, Connections, Permissions, Help, Settings, Guardrails) rendered inline in chat
+  - **EntraPulse Polyarchy** using the entrapulse-polyarchy package (v0.1.9) - An interactive identity-relationship visualization (the polyarchy Microsoft demoed in 2003 and never shipped) rendered inline in chat: org chains, group memberships, attribute pivots, and access, on a live D3 force graph
   - **Microsoft Enterprise MCP** (Cloud) - Enterprise features: Audit Logs, PIM, Conditional Access, Device Compliance
   - Microsoft Docs MCP using the official MicrosoftDocs/MCP package for Microsoft Learn documentation and official Microsoft documentation
   - Fetch MCP for general web searches and documentation retrieval
@@ -246,6 +247,21 @@ How it works and how it stays secure:
 - **EntraPulse Lite keeps owning authentication.** UI-initiated tool calls pass through a policy gate: read/display calls are allowed, while **auth-mutating actions** (sign-in, add user/service-principal connection, grant consent) are **blocked** and you're pointed to EntraPulse Lite's own auth settings.
 - Toggle inline rendering with **Settings → MCP Server Configuration → Enable interactive MCP apps** (default **on**). When off, results render as text/JSON only — the text answer is always present as a fallback.
 - Interactive apps require a signed-in Lokka connection (the SDK transport). If that's unavailable, the app degrades quietly to the text answer.
+
+#### EntraPulse Polyarchy (Identity Visualization)
+
+EntraPulse Lite bundles the [entrapulse-polyarchy](https://www.npmjs.com/package/entrapulse-polyarchy) MCP App (v0.1.9): a live, interactive identity-relationship graph rendered **inline in chat** — the intersecting-hierarchy "polyarchy" visual Microsoft demoed in 2003 and never shipped.
+
+Open it by asking, e.g. *"visualize my identity"*, *"open the polyarchy"*, or *"visualize Megan's relationships"* (naming someone else focuses the graph on them). Then explore:
+- **Click** a node to open its profile panel; **double-click** to flip the whole view to that identity's context
+- Switch between **Org** (manager chains), **Groups** (memberships), **Attributes** (department/office/any Graph attribute pivots), and **Access** (directory roles, app assignments)
+- Everything fetched in a session is cached, so re-exploring rebuilds instantly with zero extra Graph calls
+
+How it authenticates and stays secure:
+- Runs in **client-provided-token mode**: EntraPulse Lite injects and refreshes your signed-in Graph token, so the app never performs its own sign-in
+- Needs the **User.Read.All**, **Group.Read.All**, **RoleManagement.Read.Directory**, and **Application.Read.All** delegated scopes; a missing scope shows up as a clear 403 naming the scope
+- Same iframe sandbox and policy gate as the Lokka apps: UI-initiated calls that would touch EntraPulse Lite's token channel are blocked
+- Obeys the **Enable interactive MCP apps** toggle, plus its own switch at **Settings → MCP Server Configuration → Enable Polyarchy Identity Visualizer** (default **on**)
 
 #### Microsoft Enterprise MCP Server (Complex Enterprise Queries)
 

@@ -14,7 +14,7 @@ import { GraphMCPClient } from '../mcp/clients/GraphMCPClient';
 import { MCPErrorHandler, ErrorCode } from '../mcp/utils';
 import { debugMCP, checkMCPServerHealth } from '../mcp/mcp-debug';
 import { McpAppsHost, HostConnection } from '../mcp/host/McpAppsHost';
-import { LOKKA_NPX_ARGS } from '../mcp/constants';
+import { LOKKA_NPX_ARGS, POLYARCHY_NPX_ARGS, POLYARCHY_SERVER_ID } from '../mcp/constants';
 import { VERSION } from '../shared/version';
 import { conversationContextManager } from '../shared/ConversationContextManager';
 import { AutoUpdaterService } from './AutoUpdaterService';
@@ -1176,7 +1176,22 @@ class EntraPulseLiteApp {
             console.log(`🔧 Lokka client ID: ${displayClientId}`);
             const authMethod = env.ACCESS_TOKEN ? 'direct access token' : (env.USE_CLIENT_TOKEN ? 'delegated (client token)' : 'application credentials');
             console.log(`🔧 Lokka auth method: ${authMethod}`);
-            
+
+            // Polyarchy rides the same delegated token in client-provided-token mode
+            // (no TENANT_ID/CLIENT_ID needed - EntraPulse owns the token channel).
+            const polyarchyServerIndex = this.config.mcpServers.findIndex(server => server.name === POLYARCHY_SERVER_ID);
+            if (polyarchyServerIndex !== -1) {
+              this.config.mcpServers[polyarchyServerIndex] = {
+                ...this.config.mcpServers[polyarchyServerIndex],
+                enabled: mcpConfigAuth.polyarchy?.enabled !== false,
+                env: {
+                  USE_CLIENT_TOKEN: 'true',
+                  ...(env.ACCESS_TOKEN ? { ACCESS_TOKEN: env.ACCESS_TOKEN } : {})
+                }
+              };
+              console.log('✅ Updated Polyarchy MCP server configuration after login');
+            }
+
             // Reinitialize MCP services with updated config
             const mcpAuthService = new MCPAuthService(this.authService);
             
@@ -3130,6 +3145,15 @@ class EntraPulseLiteApp {
         command: 'npx',
         args: [...LOKKA_NPX_ARGS],
         env: lokkaEnv
+      },
+      {
+        name: POLYARCHY_SERVER_ID,
+        type: 'entrapulse-polyarchy' as const,
+        port: 0, // Not used for stdin/stdout MCP servers
+        enabled: this.configService.isPolyarchyMCPConfigured(),
+        command: 'npx',
+        args: [...POLYARCHY_NPX_ARGS],
+        env: this.configService.getPolyarchyMCPEnvironment(userToken)
       },
       {
         name: 'fetch',

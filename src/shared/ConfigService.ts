@@ -1244,6 +1244,9 @@ export class ConfigService {
       },
       microsoftDocs: {
         enabled: true
+      },
+      polyarchy: {
+        enabled: true
       }
     };
   }
@@ -1395,13 +1398,70 @@ export class ConfigService {
     switch (lokkaConfig.authMode) {
       case 'client-credentials':
         return !!(lokkaConfig.clientId && lokkaConfig.tenantId && lokkaConfig.clientSecret);
-      
+
       case 'enhanced-graph-access':
         return true; // Always available if enabled
-      
+
       case 'delegated':
       default:
         return !!(lokkaConfig.clientId && lokkaConfig.tenantId);
+    }
+  }
+
+  /**
+   * Get Polyarchy MCP environment variables for current configuration.
+   * Polyarchy always runs in client-provided-token mode: EntraPulse injects/refreshes
+   * its own delegated Graph token, so no TENANT_ID/CLIENT_ID is passed and the server
+   * never falls back to its own interactive sign-in.
+   * @param userToken Optional user access token for runtime
+   */
+  getPolyarchyMCPEnvironment(userToken?: string): Record<string, string> {
+    if (!this.isPolyarchyMCPConfigured()) {
+      return {};
+    }
+
+    const env: Record<string, string> = {
+      USE_CLIENT_TOKEN: 'true'
+    };
+
+    // Same delegated Graph token feed as Lokka: runtime token first, then stored token.
+    const accessToken = userToken || this.getMCPConfig().lokka?.accessToken;
+    if (accessToken) {
+      env.ACCESS_TOKEN = accessToken;
+    }
+
+    return env;
+  }
+
+  /**
+   * Check if the Polyarchy MCP server should run: its own toggle (default on) plus the
+   * same auth-availability checks as Lokka MINUS the Lokka toggle, so disabling Lokka
+   * doesn't kill the visualizer. The auth credentials live on mcpConfig.lokka because
+   * that's where initializeMCPConfiguration mirrors the Entra settings.
+   */
+  isPolyarchyMCPConfigured(): boolean {
+    const mcpConfig = this.getMCPConfig();
+    if ((mcpConfig.polyarchy?.enabled ?? true) === false) {
+      console.log('[ConfigService] Polyarchy MCP disabled by toggle');
+      return false;
+    }
+
+    const lokkaConfig = mcpConfig.lokka;
+    if (!lokkaConfig) {
+      console.log('[ConfigService] Polyarchy MCP unavailable: no auth configuration');
+      return false;
+    }
+
+    switch (lokkaConfig.authMode) {
+      case 'client-credentials':
+        return !!(lokkaConfig.clientId && lokkaConfig.tenantId && lokkaConfig.clientSecret);
+
+      case 'enhanced-graph-access':
+        return true; // Always available: uses the runtime Graph PowerShell token
+
+      case 'delegated':
+      default:
+        return !!(lokkaConfig.clientId && lokkaConfig.tenantId) || !!lokkaConfig.accessToken;
     }
   }
 }

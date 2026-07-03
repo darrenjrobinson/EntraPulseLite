@@ -4,6 +4,7 @@
 import { MCPServerConfig } from '../types';
 import { FetchMCPServer } from './fetch';
 import { ExternalLokkaMCPStdioServer } from './lokka/ExternalLokkaMCPStdioServer';
+import { PolyarchyMCPServer } from './polyarchy/PolyarchyMCPServer';
 import { MicrosoftEnterpriseMCPServer } from './MicrosoftEnterpriseMCPServer';
 import { MCPAuthService } from '../auth/MCPAuthService';
 import { ConfigService } from '../../shared/ConfigService';
@@ -34,6 +35,15 @@ export class MCPServerFactory {
           throw new Error('Config service is required for external lokka MCP server');
         }
         return new ExternalLokkaMCPStdioServer(config, authService, configService);
+
+      case 'entrapulse-polyarchy':
+        if (!authService) {
+          throw new Error('Auth service is required for the Polyarchy MCP server');
+        }
+        if (!configService) {
+          throw new Error('Config service is required for the Polyarchy MCP server');
+        }
+        return new PolyarchyMCPServer(config, authService, configService);
 
       case 'microsoft-enterprise':
         if (!mainAuthService) {

@@ -1335,6 +1335,35 @@ export const EnhancedSettingsDialog: React.FC<EnhancedSettingsDialogProps> = ({
                       </Box>
                     </Grid>
 
+                    {/* EntraPulse Polyarchy (Identity Visualization) */}
+                    <Grid item xs={12}>
+                      <Box sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 1 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                          <ComputerIcon sx={{ mr: 1, color: 'primary.main' }} />
+                          <Typography variant="subtitle1" fontWeight="medium">
+                            EntraPulse Polyarchy (Identity Visualization)
+                          </Typography>
+                        </Box>
+                        <FormControlLabel
+                          control={
+                            <Switch
+                              checked={mcpConfig.polyarchy?.enabled ?? true}
+                              onChange={(e) => handleMcpConfigChange({
+                                ...mcpConfig,
+                                polyarchy: { enabled: e.target.checked }
+                              })}
+                            />
+                          }
+                          label="Enable Polyarchy Identity Visualizer"
+                        />
+                        <Typography variant="caption" color="textSecondary" sx={{ display: 'block', ml: 4 }}>
+                          Interactive identity-relationship graph rendered inline in chat (try "visualize my identity").
+                          Uses your signed-in Graph token and needs the User.Read.All, Group.Read.All,
+                          RoleManagement.Read.Directory and Application.Read.All delegated scopes.
+                        </Typography>
+                      </Box>
+                    </Grid>
+
                     {/* Microsoft Enterprise MCP (Cloud) */}
                     <Grid item xs={12}>
                       <Box sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: 1 }}>

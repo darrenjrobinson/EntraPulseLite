@@ -9,6 +9,7 @@ EntraPulse Lite uses a dedicated MCP TypeScript SDK to interact with MCP servers
 1. Microsoft Graph API (via the Lokka MCP server)
 2. Microsoft Learn and official documentation (via the Microsoft Docs MCP)
 3. General web content and documentation (via the Fetch MCP server)
+4. Interactive identity-relationship visualization (via the EntraPulse Polyarchy MCP App server)
 
 ## Architecture
 
@@ -53,6 +54,26 @@ The Fetch MCP server provides access to general web content and documentation. I
 The Lokka MCP server provides access to Microsoft Graph API. It includes the following tools:
 
 - `microsoft_graph_query` - Execute queries against Microsoft Graph API endpoints
+
+### EntraPulse Polyarchy MCP Server
+
+The EntraPulse Polyarchy server (`entrapulse-polyarchy` on npm, version-pinned) serves an interactive
+identity-relationship visualization as an MCP App, rendered inline in chat by `McpAppFrame`. Tools exposed
+to the LLM:
+
+- `visualize-identity` - Open the polyarchy focused on the signed-in user, or a searched/named person
+- `polyarchy-search` - Find people by name/UPN
+- `get-auth-status` - Auth diagnostics
+
+The app's own expansion tools (`polyarchy-expand`, `get-photo`, `get-manager`) flow over the MCP Apps
+iframe bridge. **Key implementation notes**:
+- SDK-transport-only (`SdkMcpConnection`, tier-0) - no legacy stdio fallback tiers; resources/read is
+  required for the MCP App UI anyway
+- Always runs in client-provided-token mode (`USE_CLIENT_TOKEN=true`): EntraPulse Lite injects the
+  signed-in Graph token at spawn and refreshes it via the server's `set-access-token` tool (a live tool
+  call - no process restart)
+- The MCP Apps policy gate denies iframe-initiated `set-access-token` calls (EntraPulse owns the token
+  channel); everything else relays freely
 
 ## Authentication
 

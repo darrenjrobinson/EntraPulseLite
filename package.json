@@ -1,7 +1,7 @@
 {
   "name": "entrapulselite",
   "productName": "EntraPulse Lite",
-  "version": "1.3.4",
+  "version": "1.4.0",
   "description": "A freemium desktop application for natural language querying of Microsoft Graph APIs through local LLM integration",
   "main": "dist/main.js",
   "homepage": "https://github.com/darrenjrobinson/EntraPulseLite",
@@ -193,6 +193,7 @@
     "electron-squirrel-startup": "^1.0.1",
     "electron-store": "^10.0.1",
     "electron-updater": "^6.6.2",
+    "entrapulse-polyarchy": "0.1.9",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-markdown": "^8.0.7",

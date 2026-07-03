@@ -39,6 +39,7 @@ export interface ChatMessage {
       fetchResult?: any;
       lokkaResult?: any;
       microsoftEnterpriseResult?: any;
+      polyarchyResult?: any;
     };
     mcpServerUsed?: 'lokka' | 'microsoft-enterprise' | 'auto-routed'; // Track which MCP server handled the query
     // MCP Apps: when a tool call references an interactive UI resource, the renderer
@@ -149,11 +150,14 @@ export interface MCPConfig {
     consentedAt?: string; // ISO timestamp of when admin consent was granted
     baseUrl?: string; // Override for Microsoft MCP endpoint (defaults to https://mcp.svc.cloud.microsoft/enterprise)
   };
+  polyarchy?: {
+    enabled: boolean; // EntraPulse Polyarchy identity visualizer; runs in client-provided-token mode
+  };
 }
 
 export interface MCPServerConfig {
   name: string;
-  type: 'fetch' | 'external-lokka' | 'microsoft-docs' | 'microsoft-enterprise';
+  type: 'fetch' | 'external-lokka' | 'microsoft-docs' | 'microsoft-enterprise' | 'entrapulse-polyarchy';
   port: number;
   enabled: boolean;
   url?: string;

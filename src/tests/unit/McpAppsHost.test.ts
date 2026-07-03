@@ -61,6 +61,28 @@ describe('ServerPolicy', () => {
     expect(policyForServer('external-lokka')).toBeInstanceOf(LokkaPolicy);
     expect(policyForServer('other')).toBeInstanceOf(DefaultPolicy);
   });
+
+  describe('Polyarchy policy (via policyForServer)', () => {
+    const policy = policyForServer('entrapulse-polyarchy');
+
+    it('uses the mutating-tools policy shape for the Polyarchy server', () => {
+      expect(policy).toBeInstanceOf(LokkaPolicy);
+    });
+
+    it('allows the app-bridge tools and resource reads', () => {
+      for (const name of ['visualize-identity', 'polyarchy-expand', 'polyarchy-search', 'get-photo', 'get-manager', 'get-auth-status']) {
+        expect(policy.evaluate('tools/call', { name }).action).toBe('allow');
+      }
+      expect(policy.evaluate('resources/read', { uri: 'ui://entrapulse-polyarchy/mcp-app.html' }).action).toBe('allow');
+    });
+
+    it('denies set-access-token (EntraPulse owns the token channel) with a redirect hint', () => {
+      const d = policy.evaluate('tools/call', { name: 'set-access-token' });
+      expect(d.action).toBe('deny');
+      expect(d.reason).toBeTruthy();
+      expect(d.redirect).toContain('settings');
+    });
+  });
 });
 
 describe('McpAppsHost', () => {

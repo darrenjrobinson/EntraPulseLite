@@ -201,6 +201,25 @@ describe('McpAppFrame bridge', () => {
     expect(iframe.getAttribute('srcdoc')).toContain('entrapulse/prompt-copied');
   });
 
+  it('titles the Polyarchy app frame "Polyarchy"', async () => {
+    const polyarchyResource = {
+      ...uiResource,
+      serverId: 'entrapulse-polyarchy',
+      resourceUri: 'ui://entrapulse-polyarchy/mcp-app.html',
+      toolName: 'visualize-identity',
+    };
+    readResource.mockResolvedValue({
+      contents: [{ uri: polyarchyResource.resourceUri, mimeType: 'text/html;profile=mcp-app', text: HTML_DOC }],
+    });
+    await act(async () => {
+      root = createRoot(container);
+      root.render(<McpAppFrame uiResource={polyarchyResource} />);
+    });
+    await flush();
+    expect(readResource).toHaveBeenCalledWith('entrapulse-polyarchy', polyarchyResource.resourceUri);
+    expect(container.textContent).toContain('Polyarchy');
+  });
+
   it('shows a subtle fallback message when the resource cannot be read', async () => {
     readResource.mockResolvedValue({ error: { code: -32603, message: 'nope' } });
     await act(async () => {

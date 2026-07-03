@@ -176,3 +176,94 @@ export function detectLokkaAppIntent(query: string): { tool: string; resourceUri
 export const LOKKA_TOOL_DEFINITION_UI_RESOURCES: Record<string, string> = {
   'Lokka-Microsoft': 'ui://lokka/graph-explorer.html'
 };
+
+// ---------------------------------------------------------------------------
+// EntraPulse Polyarchy MCP server (interactive identity-relationship visualizer)
+// ---------------------------------------------------------------------------
+
+// Pin the version so a new upstream release cannot reach users untested. Bump
+// deliberately alongside the package.json dependency and re-run the polyarchy
+// integration tests.
+export const POLYARCHY_PACKAGE_NAME = 'entrapulse-polyarchy';
+export const POLYARCHY_VERSION = '0.1.9';
+export const POLYARCHY_PINNED_PACKAGE = `${POLYARCHY_PACKAGE_NAME}@${POLYARCHY_VERSION}`;
+export const POLYARCHY_NPX_ARGS = ['-y', POLYARCHY_PINNED_PACKAGE];
+
+// Used as both the server config `name` and `type`.
+export const POLYARCHY_SERVER_ID = 'entrapulse-polyarchy';
+
+// The single self-contained MCP App the server serves (D3 force graph).
+export const POLYARCHY_UI_RESOURCE = 'ui://entrapulse-polyarchy/mcp-app.html';
+
+// Polyarchy runs in client-provided-token mode (USE_CLIENT_TOKEN): EntraPulse owns the
+// token channel. The LLM only needs the opener plus lightweight lookups/diagnostics;
+// polyarchy-expand / get-photo / get-manager are driven by the app UI over the iframe
+// bridge, which bypasses this allowlist (same as Lokka's un-exposed tools).
+export const POLYARCHY_EXPOSED_TOOLS = [
+  'visualize-identity',
+  'polyarchy-search',
+  'get-auth-status'
+];
+
+// Denied from the MCP App iframe: set-access-token is EntraPulse's primary-token
+// injection channel; the app must not override it.
+export const POLYARCHY_AUTH_MUTATING_TOOLS = ['set-access-token'];
+
+// visualize-identity's UI link lives on its tool definition; map it explicitly so the
+// app auto-opens even when the call result carries no _meta. Used by resolveUiResourceUri().
+export const POLYARCHY_TOOL_DEFINITION_UI_RESOURCES: Record<string, string> = {
+  'visualize-identity': POLYARCHY_UI_RESOURCE
+};
+
+// Intent routing for the Polyarchy app. Patterns stay anchored to identity/org/
+// relationship nouns (never bare "visualize") so ordinary Graph questions aren't
+// hijacked. Subject-capturing patterns pass the captured name as a search argument.
+const POLYARCHY_SELF_SUBJECTS = new Set(['me', 'my', 'myself', 'the', 'my own']);
+
+export const POLYARCHY_APP_INTENTS: Array<{ patterns: RegExp[]; captureSearch?: boolean }> = [
+  {
+    // "open/show the polyarchy", or any mention of the distinctive word itself
+    patterns: [
+      /\b(open|show)\s+(me\s+)?(the\s+)?(identity\s+)?polyarchy\b/i,
+      /\bpolyarchy\b/i,
+    ],
+  },
+  {
+    // "visualize my identity/org chart/relationships" -> /me
+    patterns: [/\bvisuali[sz]e\s+(?:my|the)\s+(?:identity|org(?:\s+chart)?|relationships)\b/i],
+  },
+  {
+    // "visualize Megan's relationships", "identity graph for Rebecca" -> { search }
+    captureSearch: true,
+    patterns: [
+      /\bvisuali[sz]e\s+(.+?)(?:'s)?\s+(?:identity|relationships|org(?:\s+chart)?)\b/i,
+      /\b(?:identity|relationship)\s+(?:graph|map|visuali[sz]ation)\s+(?:for|of)\s+(.+?)\s*[.?!]?\s*$/i,
+    ],
+  },
+];
+
+/**
+ * Detect whether a user query asks to open the Polyarchy identity visualizer.
+ * Returns the visualize-identity tool call (with a search arg when the query
+ * names someone else), or null for ordinary queries.
+ */
+export function detectPolyarchyAppIntent(
+  query: string
+): { tool: string; resourceUri: string; args: Record<string, any> } | null {
+  if (!query) return null;
+  for (const intent of POLYARCHY_APP_INTENTS) {
+    for (const pattern of intent.patterns) {
+      const match = pattern.exec(query);
+      if (!match) continue;
+      const args: Record<string, any> = {};
+      if (intent.captureSearch && match[1]) {
+        const subject = match[1].trim().replace(/[.?!]+$/, '');
+        if (subject && !POLYARCHY_SELF_SUBJECTS.has(subject.toLowerCase())) {
+          args.search = subject;
+        }
+      }
+      return { tool: 'visualize-identity', resourceUri: POLYARCHY_UI_RESOURCE, args };
+    }
+  }
+  return null;
+}

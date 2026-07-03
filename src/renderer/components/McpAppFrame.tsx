@@ -274,6 +274,7 @@ export const McpAppFrame: React.FC<McpAppFrameProps> = ({ uiResource, onSendMess
       'ui://lokka/help.html': 'Help',
       'ui://lokka/settings.html': 'Lokka Settings',
       'ui://lokka/guardrails.html': 'Guardrails',
+      'ui://entrapulse-polyarchy/mcp-app.html': 'Polyarchy',
     };
     return map[resourceUri] || 'Interactive App';
   }, [resourceUri]);

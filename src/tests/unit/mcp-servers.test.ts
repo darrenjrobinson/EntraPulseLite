@@ -2,9 +2,13 @@
 // Tests for MCP server implementations
 
 import { FetchMCPServer } from '../../mcp/servers/fetch';
+import { PolyarchyMCPServer } from '../../mcp/servers/polyarchy/PolyarchyMCPServer';
 import { MCPServerConfig } from '../../mcp/types';
 import { MCPServerFactory } from '../../mcp/servers';
 import { MCPAuthService } from '../../mcp/auth/MCPAuthService';
+import { ConfigService } from '../../shared/ConfigService';
+
+jest.mock('../../shared/ConfigService');
 
 describe('MCP Servers', () => {
   // Mock auth service
@@ -71,6 +75,32 @@ describe('MCP Servers', () => {
       const server = MCPServerFactory.createServer(config);
       
       expect(server).toBeInstanceOf(FetchMCPServer);
+    });
+
+    test('should create PolyarchyMCPServer with auth and config services', () => {
+      const config: MCPServerConfig = {
+        name: 'entrapulse-polyarchy',
+        type: 'entrapulse-polyarchy',
+        port: 0,
+        enabled: true,
+      };
+
+      const mockConfigService = new (ConfigService as any)() as ConfigService;
+      const server = MCPServerFactory.createServer(config, mockAuthService, mockConfigService);
+
+      expect(server).toBeInstanceOf(PolyarchyMCPServer);
+    });
+
+    test('should throw when PolyarchyMCPServer is created without required services', () => {
+      const config: MCPServerConfig = {
+        name: 'entrapulse-polyarchy',
+        type: 'entrapulse-polyarchy',
+        port: 0,
+        enabled: true,
+      };
+
+      expect(() => MCPServerFactory.createServer(config)).toThrow('Auth service is required');
+      expect(() => MCPServerFactory.createServer(config, mockAuthService)).toThrow('Config service is required');
     });
 
     test('should throw error for unsupported server type', () => {
