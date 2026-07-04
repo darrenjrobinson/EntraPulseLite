@@ -220,6 +220,83 @@ describe('McpAppFrame bridge', () => {
     expect(container.textContent).toContain('Polyarchy');
   });
 
+  describe('Polyarchy (canvas app) sizing and display controls', () => {
+    const polyarchyResource = {
+      ...uiResource,
+      serverId: 'entrapulse-polyarchy',
+      resourceUri: 'ui://entrapulse-polyarchy/mcp-app.html',
+      toolName: 'visualize-identity',
+    };
+
+    async function renderPolyarchy() {
+      readResource.mockResolvedValue({
+        contents: [{ uri: polyarchyResource.resourceUri, mimeType: 'text/html;profile=mcp-app', text: HTML_DOC }],
+      });
+      await act(async () => {
+        root = createRoot(container);
+        root.render(<McpAppFrame uiResource={polyarchyResource} />);
+      });
+      await flush();
+      return container.querySelector('iframe[title^="mcp-app-"]') as HTMLIFrameElement;
+    }
+
+    it('opens at a usable default height (820px), not the compact 56px', async () => {
+      const iframe = await renderPolyarchy();
+      expect(iframe.style.height).toBe('820px');
+    });
+
+    it('floors size-changed reports at the default so a viewport-race cannot shrink it back', async () => {
+      const iframe = await renderPolyarchy();
+      await act(async () => {
+        messageFromIframe(iframe, { jsonrpc: '2.0', method: 'ui/notifications/size-changed', params: { height: 56 } });
+      });
+      expect(iframe.style.height).toBe('820px'); // floored at DEFAULT_HEIGHTS
+      await act(async () => {
+        messageFromIframe(iframe, { jsonrpc: '2.0', method: 'ui/notifications/size-changed', params: { height: 1000 } });
+      });
+      expect(iframe.style.height).toBe('1000px'); // growth still allowed
+    });
+
+    it('answers ui/request-display-mode with an SDK-compatible `mode` key (inline)', async () => {
+      const iframe = await renderPolyarchy();
+      const spy = jest.spyOn(iframe.contentWindow as Window, 'postMessage');
+      await act(async () => {
+        messageFromIframe(iframe, { jsonrpc: '2.0', id: 9, method: 'ui/request-display-mode', params: { mode: 'fullscreen' } });
+      });
+      const reply = spy.mock.calls.map((c) => c[0] as any).find((m) => m?.id === 9);
+      expect(reply?.result).toMatchObject({ mode: 'inline', displayMode: 'inline' });
+    });
+
+    it('toggles full screen from the header button and exits on Escape', async () => {
+      const iframe = await renderPolyarchy();
+
+      const fsButton = container.querySelector('button[aria-label="Full screen"]') as HTMLButtonElement;
+      expect(fsButton).toBeTruthy();
+      await act(async () => { fsButton.click(); });
+      expect(iframe.style.height).toBe('100%');
+      expect(container.querySelector('button[aria-label="Exit full screen"]')).toBeTruthy();
+
+      await act(async () => {
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      });
+      expect(iframe.style.height).toBe('820px');
+    });
+
+    it('grows to most of the window via the expand toggle and shrinks back', async () => {
+      const iframe = await renderPolyarchy();
+      const expandButton = container.querySelector('button[aria-label="Expand app"]') as HTMLButtonElement;
+      expect(expandButton).toBeTruthy();
+
+      await act(async () => { expandButton.click(); });
+      const expanded = parseInt(iframe.style.height, 10);
+      expect(expanded).toBeGreaterThanOrEqual(820);
+
+      const shrinkButton = container.querySelector('button[aria-label="Shrink app"]') as HTMLButtonElement;
+      await act(async () => { shrinkButton.click(); });
+      expect(iframe.style.height).toBe('820px');
+    });
+  });
+
   it('shows a subtle fallback message when the resource cannot be read', async () => {
     readResource.mockResolvedValue({ error: { code: -32603, message: 'nope' } });
     await act(async () => {

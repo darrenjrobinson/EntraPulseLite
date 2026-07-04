@@ -185,7 +185,7 @@ export const LOKKA_TOOL_DEFINITION_UI_RESOURCES: Record<string, string> = {
 // deliberately alongside the package.json dependency and re-run the polyarchy
 // integration tests.
 export const POLYARCHY_PACKAGE_NAME = 'entrapulse-polyarchy';
-export const POLYARCHY_VERSION = '0.1.9';
+export const POLYARCHY_VERSION = '0.1.10';
 export const POLYARCHY_PINNED_PACKAGE = `${POLYARCHY_PACKAGE_NAME}@${POLYARCHY_VERSION}`;
 export const POLYARCHY_NPX_ARGS = ['-y', POLYARCHY_PINNED_PACKAGE];
 

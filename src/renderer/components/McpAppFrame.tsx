@@ -15,8 +15,12 @@
 // messages are validated against the iframe's contentWindow.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Box, Paper, Typography, CircularProgress } from '@mui/material';
+import { Box, Paper, Typography, CircularProgress, IconButton, Tooltip } from '@mui/material';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore';
+import UnfoldLessIcon from '@mui/icons-material/UnfoldLess';
+import FullscreenIcon from '@mui/icons-material/Fullscreen';
+import FullscreenExitIcon from '@mui/icons-material/FullscreenExit';
 import { McpUiResourceRef } from '../../types';
 import { VERSION } from '../../shared/version';
 
@@ -41,6 +45,14 @@ const APP_PROTOCOL_VERSION = '2025-06-18'; // MCP Apps iframe bridge version (Lo
 const COLLAPSED_HEIGHT = 56; // compact default; grown by ui/notifications/size-changed
 const MIN_HEIGHT = 44;
 const MAX_HEIGHT = 1400;
+
+// Canvas-style apps fill whatever viewport they're given, so their scrollHeight-based
+// size reports can never grow past the iframe's own height — they need a usable default
+// instead of the Lokka-style compact start. 820 matches the polyarchy's own inline
+// height preference (what it reports when a host declines its fullscreen request).
+const DEFAULT_HEIGHTS: Record<string, number> = {
+  'ui://entrapulse-polyarchy/mcp-app.html': 820,
+};
 
 /** Build a restrictive CSP from the resource's _meta.ui.csp (defaults deny remote). */
 function buildCsp(meta: any): string {
@@ -85,14 +97,19 @@ export const McpAppFrame: React.FC<McpAppFrameProps> = ({ uiResource, onSendMess
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [html, setHtml] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { serverId, resourceUri, toolName, initialData } = uiResource;
+
   // Start compact so the app's first size report reflects its (collapsed) content.
   // Lokka reports height as documentElement.scrollHeight, which is floored at the iframe's
   // own viewport height — so a large initial height can never shrink back. The app grows
-  // this via ui/notifications/size-changed when the user expands the query.
-  const [height, setHeight] = useState<number>(COLLAPSED_HEIGHT);
+  // this via ui/notifications/size-changed when the user expands the query. Canvas apps
+  // (see DEFAULT_HEIGHTS) start at a usable height instead.
+  const [height, setHeight] = useState<number>(DEFAULT_HEIGHTS[resourceUri] ?? COLLAPSED_HEIGHT);
+  // Manual overrides from the header controls; fullscreen is also grantable by the app
+  // itself via ui/request-display-mode.
+  const [expanded, setExpanded] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
   const initialPushedRef = useRef(false);
-
-  const { serverId, resourceUri, toolName, initialData } = uiResource;
 
   // --- Fetch the resource HTML over IPC (resources/read) -------------------
   useEffect(() => {
@@ -185,7 +202,11 @@ export const McpAppFrame: React.FC<McpAppFrameProps> = ({ uiResource, onSendMess
           }
 
           case 'ui/request-display-mode': {
-            reply({ result: { displayMode: 'inline' } });
+            // Keep app-initiated mode changes inline (the polyarchy auto-requests
+            // fullscreen at startup — inside a chat that decision belongs to the user,
+            // via the header's fullscreen button). `mode` is the key the ext-apps SDK
+            // validates; `displayMode` kept for older bridges.
+            reply({ result: { mode: 'inline', displayMode: 'inline' } });
             return;
           }
 
@@ -244,8 +265,12 @@ export const McpAppFrame: React.FC<McpAppFrameProps> = ({ uiResource, onSendMess
             return;
           }
           case 'ui/notifications/size-changed': {
+            // Canvas apps fill their viewport, so their scrollHeight-based reports can
+            // race back down to the current iframe height — floor them at the app's
+            // default so a good height never shrinks into uselessness.
+            const floor = Math.max(DEFAULT_HEIGHTS[resourceUri] ?? 0, MIN_HEIGHT);
             const h = Number(msg.params?.height);
-            if (Number.isFinite(h) && h > 0) setHeight(Math.min(Math.max(h, MIN_HEIGHT), MAX_HEIGHT));
+            if (Number.isFinite(h) && h > 0) setHeight(Math.min(Math.max(h, floor), MAX_HEIGHT));
             return;
           }
           case 'ui/update-model-context':
@@ -264,7 +289,15 @@ export const McpAppFrame: React.FC<McpAppFrameProps> = ({ uiResource, onSendMess
 
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
-  }, [serverId, postToIframe, pushInitialData, onSendMessage, onFillInput]);
+  }, [serverId, resourceUri, postToIframe, pushInitialData, onSendMessage, onFillInput]);
+
+  // Escape exits fullscreen (when focus is outside the iframe; the header button always works).
+  useEffect(() => {
+    if (!fullscreen) return;
+    const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') setFullscreen(false); };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [fullscreen]);
 
   const title = useMemo(() => {
     const map: Record<string, string> = {
@@ -294,28 +327,81 @@ export const McpAppFrame: React.FC<McpAppFrameProps> = ({ uiResource, onSendMess
     );
   }
 
+  // Manual expand grows the frame to most of the window; fullscreen overlays it.
+  const expandedHeight = Math.min(MAX_HEIGHT, Math.round((typeof window !== 'undefined' ? window.innerHeight : 900) * 0.8));
+  const inlineHeight = expanded ? Math.max(height, expandedHeight) : height;
+
   return (
-    <Paper variant="outlined" sx={{ my: 1, overflow: 'hidden', borderRadius: 1 }}>
-      <Box sx={{ px: 1, py: 0.5, bgcolor: 'action.hover', display: 'flex', alignItems: 'center', gap: 0.5 }}>
-        <OpenInNewIcon sx={{ fontSize: 14 }} color="action" />
-        <Typography variant="caption" color="text.secondary">{title}</Typography>
-      </Box>
-      {html ? (
-        <iframe
-          ref={iframeRef}
-          title={`mcp-app-${title}`}
-          srcDoc={html}
-          sandbox="allow-scripts allow-forms"
-          // Lokka apps request clipboardWrite (copy buttons); grant it via Permissions Policy.
-          allow="clipboard-write"
-          style={{ width: '100%', height, border: 'none', display: 'block', background: '#fff' }}
+    <>
+      {fullscreen && (
+        <Box
+          onClick={() => setFullscreen(false)}
+          sx={{ position: 'fixed', inset: 0, zIndex: (theme) => theme.zIndex.modal - 1, bgcolor: 'rgba(0,0,0,0.5)' }}
         />
-      ) : (
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 160 }}>
-          <CircularProgress size={20} />
-        </Box>
       )}
-    </Paper>
+      {/* Fullscreen is CSS-only on the SAME Paper/iframe nodes — reparenting the iframe
+          (e.g. into a Dialog portal) would reload srcdoc and lose the app's state. */}
+      <Paper
+        variant="outlined"
+        sx={{
+          my: 1,
+          overflow: 'hidden',
+          borderRadius: 1,
+          ...(fullscreen && {
+            position: 'fixed',
+            inset: 12,
+            zIndex: (theme) => theme.zIndex.modal,
+            m: 0,
+            display: 'flex',
+            flexDirection: 'column',
+          }),
+        }}
+      >
+        <Box sx={{ px: 1, py: 0.5, bgcolor: 'action.hover', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <OpenInNewIcon sx={{ fontSize: 14 }} color="action" />
+          <Typography variant="caption" color="text.secondary" sx={{ flexGrow: 1 }}>{title}</Typography>
+          {!fullscreen && (
+            <Tooltip title={expanded ? 'Shrink' : 'Expand'}>
+              <IconButton size="small" aria-label={expanded ? 'Shrink app' : 'Expand app'} onClick={() => setExpanded((v) => !v)} sx={{ p: 0.25 }}>
+                {expanded ? <UnfoldLessIcon sx={{ fontSize: 16 }} /> : <UnfoldMoreIcon sx={{ fontSize: 16 }} />}
+              </IconButton>
+            </Tooltip>
+          )}
+          <Tooltip title={fullscreen ? 'Exit full screen (Esc)' : 'Full screen'}>
+            <IconButton
+              size="small"
+              aria-label={fullscreen ? 'Exit full screen' : 'Full screen'}
+              onClick={() => setFullscreen((v) => !v)}
+              sx={{ p: 0.25 }}
+            >
+              {fullscreen ? <FullscreenExitIcon sx={{ fontSize: 16 }} /> : <FullscreenIcon sx={{ fontSize: 16 }} />}
+            </IconButton>
+          </Tooltip>
+        </Box>
+        {html ? (
+          <iframe
+            ref={iframeRef}
+            title={`mcp-app-${title}`}
+            srcDoc={html}
+            sandbox="allow-scripts allow-forms"
+            // Lokka apps request clipboardWrite (copy buttons); grant it via Permissions Policy.
+            allow="clipboard-write"
+            style={{
+              width: '100%',
+              height: fullscreen ? '100%' : inlineHeight,
+              border: 'none',
+              display: 'block',
+              background: '#fff',
+              ...(fullscreen ? { flex: 1, minHeight: 0 } : {}),
+            }}
+          />
+        ) : (
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 160 }}>
+            <CircularProgress size={20} />
+          </Box>
+        )}
+      </Paper>
+    </>
   );
 };
 
