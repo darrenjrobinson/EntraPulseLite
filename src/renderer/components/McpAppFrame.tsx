@@ -15,7 +15,7 @@
 // messages are validated against the iframe's contentWindow.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Box, Paper, Typography, CircularProgress, IconButton, Tooltip } from '@mui/material';
+import { Box, Paper, Typography, CircularProgress, IconButton, Tooltip, useTheme } from '@mui/material';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore';
 import UnfoldLessIcon from '@mui/icons-material/UnfoldLess';
@@ -97,6 +97,7 @@ export const McpAppFrame: React.FC<McpAppFrameProps> = ({ uiResource, onSendMess
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [html, setHtml] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const themeMode = useTheme().palette.mode; // apps like the polyarchy follow the host theme
   const { serverId, resourceUri, toolName, initialData } = uiResource;
 
   // Start compact so the app's first size report reflects its (collapsed) content.
@@ -190,6 +191,25 @@ export const McpAppFrame: React.FC<McpAppFrameProps> = ({ uiResource, onSendMess
               result: {
                 protocolVersion: APP_PROTOCOL_VERSION,
                 hostInfo: { name: 'EntraPulse Lite', version: VERSION },
+                // Newer @modelcontextprotocol/ext-apps SDKs (the polyarchy) REQUIRE
+                // hostCapabilities + hostContext in the initialize result — connect()
+                // schema-validates and rejects without them ("Could not connect to the
+                // MCP host"). All inner fields are optional; declare what this host
+                // actually supports.
+                hostCapabilities: {
+                  openLinks: {},      // ui/open-link
+                  serverTools: {},    // tools/call relayed via the policy gate
+                  serverResources: {},// resources/read + resources/list relayed
+                  message: {},        // ui/message -> chat input
+                },
+                hostContext: {
+                  theme: themeMode,
+                  displayMode: 'inline',
+                  availableDisplayModes: ['inline'],
+                  platform: 'desktop',
+                  userAgent: `EntraPulseLite/${VERSION}`,
+                },
+                // Legacy flat keys — Lokka 2.x's older app bridge reads these.
                 displayMode: 'inline',
                 availableDisplayModes: ['inline'],
                 capabilities: {},
@@ -289,7 +309,7 @@ export const McpAppFrame: React.FC<McpAppFrameProps> = ({ uiResource, onSendMess
 
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
-  }, [serverId, resourceUri, postToIframe, pushInitialData, onSendMessage, onFillInput]);
+  }, [serverId, resourceUri, themeMode, postToIframe, pushInitialData, onSendMessage, onFillInput]);
 
   // Escape exits fullscreen (when focus is outside the iframe; the header button always works).
   useEffect(() => {

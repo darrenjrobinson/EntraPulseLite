@@ -87,6 +87,13 @@ describe('McpAppFrame bridge', () => {
 
     const msgs = sent(spy);
     expect(msgs[0]).toMatchObject({ jsonrpc: '2.0', id: 1, result: { displayMode: 'inline' } });
+    // Newer ext-apps SDKs (polyarchy) schema-validate the initialize result and REQUIRE
+    // hostCapabilities + hostContext — without them connect() rejects and the app shows
+    // "Could not connect to the MCP host".
+    expect(msgs[0].result.hostInfo).toMatchObject({ name: 'EntraPulse Lite' });
+    expect(msgs[0].result.hostCapabilities).toMatchObject({ serverTools: {}, serverResources: {}, openLinks: {}, message: {} });
+    expect(msgs[0].result.hostContext).toMatchObject({ displayMode: 'inline', platform: 'desktop' });
+    expect(['light', 'dark']).toContain(msgs[0].result.hostContext.theme);
     expect(msgs[1]).toMatchObject({
       method: 'ui/notifications/tool-input',
       params: { toolName: 'Lokka-Microsoft', arguments: { path: '/users/123/memberOf', method: 'get', apiType: 'graph' } },
