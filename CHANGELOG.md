@@ -5,27 +5,9 @@ All notable changes to EntraPulse Lite are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.4.0] - Unreleased
+## [1.4.1] - Unreleased
 
 ### Added
-- **EntraPulse Polyarchy MCP App** (new `entrapulse-polyarchy` package,
-  pinned at v0.1.11) - an interactive Microsoft Entra ID identity-relationship
-  visualization rendered inline in chat: org chains, group memberships,
-  attribute pivots (any Graph user attribute), and access (directory roles,
-  app assignments) on a live D3 force graph. Open it with, e.g.
-  *"visualize my identity"*, *"open the polyarchy"*, or
-  *"visualize Megan's relationships"*.
-  - Runs in client-provided-token mode: EntraPulse Lite injects and
-    refreshes the signed-in Graph token (live `set-access-token` refresh,
-    no process restart); the app never performs its own sign-in
-  - Same iframe sandbox and MCP Apps policy gate as the Lokka apps;
-    UI-initiated `set-access-token` calls are blocked
-  - New settings toggle: **Settings → MCP Server Configuration → Enable
-    Polyarchy Identity Visualizer** (default on); also obeys the
-    interactive-apps toggle
-  - Requires the `User.Read.All`, `Group.Read.All`,
-    `RoleManagement.Read.Directory`, and `Application.Read.All` delegated
-    scopes (missing scopes surface as clear 403s naming the scope)
 - **Headless identity reports** (polyarchy v0.1.11's `polyarchy-report`
   tool) - analysis-style asks like *"identity report for Megan"*,
   *"summarize Rebecca's access"*, or *"report on Adele's group
@@ -40,6 +22,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   height (820px) instead of the Lokka-style 56px compact default, and
   their size reports are floored so the frame can't shrink back into
   uselessness
+
+### Changed
+- **entrapulse-polyarchy pin bumped to v0.1.11** (from v0.1.9)
+
+### Fixed
+- **Polyarchy app could not connect to the MCP host** - newer
+  `@modelcontextprotocol/ext-apps` SDKs schema-validate the
+  `ui/initialize` result and require `hostCapabilities` + `hostContext`;
+  the bridge now sends both (alongside the legacy flat keys Lokka reads),
+  and `hostContext.theme` follows EntraPulse's light/dark theme
+
+## [1.4.0] - Unreleased
+
+### Added
+- **EntraPulse Polyarchy MCP App** (new `entrapulse-polyarchy` package,
+  initially pinned at v0.1.9) - an interactive Microsoft Entra ID
+  identity-relationship visualization rendered inline in chat: org chains,
+  group memberships, attribute pivots (any Graph user attribute), and
+  access (directory roles, app assignments) on a live D3 force graph.
+  Open it with, e.g. *"visualize my identity"*, *"open the polyarchy"*, or
+  *"visualize Megan's relationships"*.
+  - Runs in client-provided-token mode: EntraPulse Lite injects and
+    refreshes the signed-in Graph token (live `set-access-token` refresh,
+    no process restart); the app never performs its own sign-in
+  - Same iframe sandbox and MCP Apps policy gate as the Lokka apps;
+    UI-initiated `set-access-token` calls are blocked
+  - New settings toggle: **Settings → MCP Server Configuration → Enable
+    Polyarchy Identity Visualizer** (default on); also obeys the
+    interactive-apps toggle
+  - Requires the `User.Read.All`, `Group.Read.All`,
+    `RoleManagement.Read.Directory`, and `Application.Read.All` delegated
+    scopes (missing scopes surface as clear 403s naming the scope)
 
 ## [1.3.4] - Unreleased
 
