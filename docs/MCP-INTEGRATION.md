@@ -62,6 +62,7 @@ identity-relationship visualization as an MCP App, rendered inline in chat by `M
 to the LLM:
 
 - `visualize-identity` - Open the polyarchy focused on the signed-in user, or a searched/named person
+- `polyarchy-report` - Headless structured JSON identity report (org chain, groups, roles, applications, attributes) for analysis in chat
 - `polyarchy-search` - Find people by name/UPN
 - `get-auth-status` - Auth diagnostics
 

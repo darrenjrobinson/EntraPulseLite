@@ -17,6 +17,7 @@ import {
   graphApiVersionFromBeta,
   detectLokkaAppIntent,
   detectPolyarchyAppIntent,
+  detectPolyarchyReportIntent,
   POLYARCHY_SERVER_ID,
   POLYARCHY_TOOL_DEFINITION_UI_RESOURCES
 } from '../mcp/constants';
@@ -173,10 +174,31 @@ export class EnhancedLLMService {
       // running a Graph query. open-* results carry _meta.ui.resourceUri directly.
       let appOpened = false;
 
-      // Polyarchy first: "visualize <person>'s identity" / "open the polyarchy" opens the
-      // identity visualizer (visualize-identity's UI link lives on its tool definition).
       const polyarchyEnabled = this.mcpConfig?.polyarchy?.enabled !== false;
-      const polyarchyIntent = detectPolyarchyAppIntent(userQuery);
+
+      // Headless identity report first: "identity report for Megan" / "summarize
+      // Rebecca's access" runs polyarchy-report and hands the structured JSON to the
+      // LLM to analyze — no app UI. Checked before the visual intent because
+      // "polyarchy report" would otherwise match the visualizer's bare pattern.
+      const reportIntent = polyarchyEnabled ? detectPolyarchyReportIntent(userQuery) : null;
+      if (reportIntent) {
+        try {
+          trace.push('Running Polyarchy identity report (headless)');
+          const reportResult = await this.mcpClient.callTool(POLYARCHY_SERVER_ID, reportIntent.tool, reportIntent.args);
+          mcpResults.polyarchyResult = { ...reportResult, headlessReport: true };
+          appOpened = true; // report data in hand — skip the visual intent and Graph routing
+          trace.push('Polyarchy identity report completed');
+        } catch (error) {
+          const errorMsg = `Polyarchy identity report failed: ${error}`;
+          errors.push(errorMsg);
+          trace.push(errorMsg);
+          // Fall through to normal routing so the question still gets answered.
+        }
+      }
+
+      // Polyarchy visualizer: "visualize <person>'s identity" / "open the polyarchy"
+      // opens the identity app (visualize-identity's UI link lives on its tool definition).
+      const polyarchyIntent = appOpened ? null : detectPolyarchyAppIntent(userQuery);
       if (polyarchyIntent && polyarchyEnabled) {
         try {
           trace.push(`Opening Polyarchy MCP app via intent: ${polyarchyIntent.tool}`);
@@ -838,11 +860,21 @@ Respond ONLY with a JSON object in this exact format:
 
     let contextData = '';
 
-    // Polyarchy app opened inline: tell the LLM so its answer acknowledges the
-    // visualization instead of trying to fabricate Graph data.
+    // Polyarchy results: either a headless identity report (structured JSON the LLM
+    // should analyze) or the visual app opened inline (acknowledge it, don't fabricate
+    // Graph data).
     if (mcpResults.polyarchyResult) {
       const polyarchyText = mcpResults.polyarchyResult.content?.find((item: any) => item.type === 'text')?.text;
-      if (mcpResults.polyarchyResult.isError) {
+      if (mcpResults.polyarchyResult.headlessReport) {
+        if (mcpResults.polyarchyResult.isError) {
+          contextData += `The Polyarchy identity report could not run: ${polyarchyText || 'unknown error'}\n` +
+            `If it lists candidate users, relay them and ask which one the user meant.\n\n`;
+        } else {
+          contextData += `Identity relationship report (structured data from the Polyarchy MCP server):\n${polyarchyText || ''}\n\n` +
+            `Answer the user's question from this report — summarize and analyze the relevant parts rather than dumping the raw JSON. ` +
+            `Mention they can also ask to "visualize" this identity to explore it interactively.\n\n`;
+        }
+      } else if (mcpResults.polyarchyResult.isError) {
         contextData += `Polyarchy Identity Visualizer could not open: ${polyarchyText || 'unknown error'}\n\n`;
       } else {
         contextData += `The Polyarchy Identity Visualizer (an interactive identity-relationship graph) has been opened inline in the chat for this request. ` +

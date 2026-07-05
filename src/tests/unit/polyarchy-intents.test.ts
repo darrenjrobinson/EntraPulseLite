@@ -3,6 +3,7 @@
 import { resolveUiResourceUri } from '../../mcp/types';
 import {
   detectPolyarchyAppIntent,
+  detectPolyarchyReportIntent,
   POLYARCHY_EXPOSED_TOOLS,
   POLYARCHY_AUTH_MUTATING_TOOLS,
   POLYARCHY_TOOL_DEFINITION_UI_RESOURCES,
@@ -69,14 +70,77 @@ describe('detectPolyarchyAppIntent', () => {
   });
 });
 
+describe('detectPolyarchyReportIntent', () => {
+  it('runs a report on a named person via for/of/on phrasing', () => {
+    expect(detectPolyarchyReportIntent('identity report for Megan')).toEqual({
+      tool: 'polyarchy-report',
+      args: { search: 'Megan' },
+    });
+    expect(detectPolyarchyReportIntent('run a polyarchy report on Adele Vance')).toEqual({
+      tool: 'polyarchy-report',
+      args: { search: 'Adele Vance' },
+    });
+    expect(detectPolyarchyReportIntent('relationship report of darren@contoso.com')).toEqual({
+      tool: 'polyarchy-report',
+      args: { search: 'darren@contoso.com' },
+    });
+  });
+
+  it('reports on the signed-in user when no subject is named', () => {
+    expect(detectPolyarchyReportIntent('give me an identity report')).toEqual({
+      tool: 'polyarchy-report',
+      args: {},
+    });
+    expect(detectPolyarchyReportIntent('access report')).toEqual({
+      tool: 'polyarchy-report',
+      args: {},
+    });
+  });
+
+  it('maps the relationship noun to report dimensions', () => {
+    expect(detectPolyarchyReportIntent("summarize Rebecca's access")).toEqual({
+      tool: 'polyarchy-report',
+      args: { search: 'Rebecca', dimensions: ['roles', 'applications'] },
+    });
+    expect(detectPolyarchyReportIntent("report on Adele's group memberships")).toEqual({
+      tool: 'polyarchy-report',
+      args: { search: 'Adele', dimensions: ['groups'] },
+    });
+    expect(detectPolyarchyReportIntent('summarize my access')).toEqual({
+      tool: 'polyarchy-report',
+      args: { dimensions: ['roles', 'applications'] },
+    });
+  });
+
+  it('does NOT hijack unrelated report/summary asks or ordinary queries', () => {
+    for (const q of [
+      'report a bug',
+      'summarize this conversation',
+      'summarize the sign-in logs',
+      'how many users do we have',
+      'visualize my identity', // visual intent, not a report
+      '',
+    ]) {
+      expect(detectPolyarchyReportIntent(q)).toBeNull();
+    }
+  });
+
+  it('wins over the visual intent for "polyarchy report" phrasing (service checks report first)', () => {
+    // Both detectors match this phrase — EnhancedLLMService must call the report
+    // detector first, so pin that both do match to document the ordering contract.
+    expect(detectPolyarchyReportIntent('polyarchy report for Megan')?.tool).toBe('polyarchy-report');
+    expect(detectPolyarchyAppIntent('polyarchy report for Megan')?.tool).toBe('visualize-identity');
+  });
+});
+
 describe('Polyarchy constants', () => {
   it('pins the npm package version', () => {
     expect(POLYARCHY_PINNED_PACKAGE).toMatch(/^entrapulse-polyarchy@\d+\.\d+\.\d+$/);
     expect(POLYARCHY_NPX_ARGS).toEqual(['-y', POLYARCHY_PINNED_PACKAGE]);
   });
 
-  it('exposes only the opener, search, and diagnostics tools to the LLM', () => {
-    expect(POLYARCHY_EXPOSED_TOOLS).toEqual(['visualize-identity', 'polyarchy-search', 'get-auth-status']);
+  it('exposes the opener, report, search, and diagnostics tools to the LLM', () => {
+    expect(POLYARCHY_EXPOSED_TOOLS).toEqual(['visualize-identity', 'polyarchy-report', 'polyarchy-search', 'get-auth-status']);
     // The token channel belongs to EntraPulse and is never LLM- or iframe-callable.
     expect(POLYARCHY_EXPOSED_TOOLS).not.toContain('set-access-token');
     expect(POLYARCHY_AUTH_MUTATING_TOOLS).toContain('set-access-token');

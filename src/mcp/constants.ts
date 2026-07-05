@@ -185,7 +185,7 @@ export const LOKKA_TOOL_DEFINITION_UI_RESOURCES: Record<string, string> = {
 // deliberately alongside the package.json dependency and re-run the polyarchy
 // integration tests.
 export const POLYARCHY_PACKAGE_NAME = 'entrapulse-polyarchy';
-export const POLYARCHY_VERSION = '0.1.10';
+export const POLYARCHY_VERSION = '0.1.11';
 export const POLYARCHY_PINNED_PACKAGE = `${POLYARCHY_PACKAGE_NAME}@${POLYARCHY_VERSION}`;
 export const POLYARCHY_NPX_ARGS = ['-y', POLYARCHY_PINNED_PACKAGE];
 
@@ -196,11 +196,13 @@ export const POLYARCHY_SERVER_ID = 'entrapulse-polyarchy';
 export const POLYARCHY_UI_RESOURCE = 'ui://entrapulse-polyarchy/mcp-app.html';
 
 // Polyarchy runs in client-provided-token mode (USE_CLIENT_TOKEN): EntraPulse owns the
-// token channel. The LLM only needs the opener plus lightweight lookups/diagnostics;
+// token channel. The LLM gets the opener, the headless report (v0.1.11+, structured
+// JSON for analysis/summaries), plus lightweight lookups/diagnostics;
 // polyarchy-expand / get-photo / get-manager are driven by the app UI over the iframe
 // bridge, which bypasses this allowlist (same as Lokka's un-exposed tools).
 export const POLYARCHY_EXPOSED_TOOLS = [
   'visualize-identity',
+  'polyarchy-report',
   'polyarchy-search',
   'get-auth-status'
 ];
@@ -241,6 +243,59 @@ export const POLYARCHY_APP_INTENTS: Array<{ patterns: RegExp[]; captureSearch?: 
     ],
   },
 ];
+
+// polyarchy-report (v0.1.11+) is the headless counterpart to visualize-identity:
+// a structured JSON identity report the LLM analyzes in chat instead of opening the
+// app. Map the relationship noun the user asked about to the report's dimensions
+// (default: all).
+const POLYARCHY_REPORT_DIMENSIONS: Record<string, string[]> = {
+  'group membership': ['groups'],
+  'group memberships': ['groups'],
+  'groups': ['groups'],
+  'access': ['roles', 'applications'],
+  'roles': ['roles'],
+  'applications': ['applications'],
+  'app assignments': ['applications'],
+};
+
+const POLYARCHY_REPORT_PATTERNS: Array<{ re: RegExp; subject?: number; noun?: number }> = [
+  // "identity report for Megan", "run a polyarchy report on Adele Vance"
+  { re: /\b(?:identity|relationship|access|polyarchy)\s+report\s+(?:for|of|on)\s+(.+?)\s*[.?!]?\s*$/i, subject: 1 },
+  // "identity report", "access report" — the signed-in user
+  { re: /\b(?:identity|relationship|access|polyarchy)\s+report\b/i },
+  // "report on Megan's group memberships", "summarize Rebecca's access"
+  { re: /\breport\s+on\s+(.+?)(?:'s)?\s+(identity|relationships?|access|group\s+memberships?|groups|roles|applications|app\s+assignments)\b/i, subject: 1, noun: 2 },
+  { re: /\bsummari[sz]e\s+(.+?)(?:'s)?\s+(identity|relationships|access|group\s+memberships?|groups|roles|applications|app\s+assignments)\b/i, subject: 1, noun: 2 },
+];
+
+/**
+ * Detect whether a user query asks for an identity relationship report/summary —
+ * the headless polyarchy-report tool, whose structured JSON the LLM analyzes in
+ * chat (no app UI). Check this BEFORE detectPolyarchyAppIntent: "polyarchy report"
+ * would otherwise match the visualizer's bare /polyarchy/ pattern.
+ */
+export function detectPolyarchyReportIntent(
+  query: string
+): { tool: string; args: Record<string, any> } | null {
+  if (!query) return null;
+  for (const { re, subject, noun } of POLYARCHY_REPORT_PATTERNS) {
+    const match = re.exec(query);
+    if (!match) continue;
+    const args: Record<string, any> = {};
+    if (subject && match[subject]) {
+      const s = match[subject].trim().replace(/[.?!]+$/, '');
+      if (s && !POLYARCHY_SELF_SUBJECTS.has(s.toLowerCase())) {
+        args.search = s;
+      }
+    }
+    if (noun && match[noun]) {
+      const dims = POLYARCHY_REPORT_DIMENSIONS[match[noun].toLowerCase().replace(/\s+/g, ' ')];
+      if (dims) args.dimensions = dims;
+    }
+    return { tool: 'polyarchy-report', args };
+  }
+  return null;
+}
 
 /**
  * Detect whether a user query asks to open the Polyarchy identity visualizer.

@@ -44,6 +44,7 @@ import { POLYARCHY_PINNED_PACKAGE, POLYARCHY_UI_RESOURCE } from '../../mcp/const
 
 const ALL_TOOLS = [
   { name: 'visualize-identity', description: 'open the polyarchy', inputSchema: { type: 'object' }, _meta: { ui: { resourceUri: POLYARCHY_UI_RESOURCE } } },
+  { name: 'polyarchy-report', description: 'headless identity report', inputSchema: { type: 'object' } },
   { name: 'polyarchy-search', description: 'find people', inputSchema: { type: 'object' } },
   { name: 'get-auth-status', description: 'auth diagnostics', inputSchema: { type: 'object' } },
   // App-bridge-only tools — not exposed to the LLM.
@@ -145,7 +146,7 @@ describe('PolyarchyMCPServer — SDK transport', () => {
     const tools = await server.listTools();
     const names = tools.map((t) => t.name);
 
-    expect(names).toEqual(expect.arrayContaining(['visualize-identity', 'polyarchy-search', 'get-auth-status']));
+    expect(names).toEqual(expect.arrayContaining(['visualize-identity', 'polyarchy-report', 'polyarchy-search', 'get-auth-status']));
     expect(names).not.toContain('polyarchy-expand');
     expect(names).not.toContain('get-photo');
     expect(names).not.toContain('get-manager');

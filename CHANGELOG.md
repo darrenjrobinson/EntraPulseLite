@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **EntraPulse Polyarchy MCP App** (new `entrapulse-polyarchy` package,
-  pinned at v0.1.10) - an interactive Microsoft Entra ID identity-relationship
+  pinned at v0.1.11) - an interactive Microsoft Entra ID identity-relationship
   visualization rendered inline in chat: org chains, group memberships,
   attribute pivots (any Graph user attribute), and access (directory roles,
   app assignments) on a live D3 force graph. Open it with, e.g.
@@ -26,6 +26,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Requires the `User.Read.All`, `Group.Read.All`,
     `RoleManagement.Read.Directory`, and `Application.Read.All` delegated
     scopes (missing scopes surface as clear 403s naming the scope)
+- **Headless identity reports** (polyarchy v0.1.11's `polyarchy-report`
+  tool) - analysis-style asks like *"identity report for Megan"*,
+  *"summarize Rebecca's access"*, or *"report on Adele's group
+  memberships"* fetch a structured relationship report (manager chain,
+  group types, assigned vs dynamic membership, roles, app assignments)
+  that the assistant analyzes in chat - no app UI involved. Nouns map to
+  report dimensions (access -> roles+applications, group memberships ->
+  groups)
 - **MCP app frame expand / full-screen controls** - every inline MCP app
   header now has an expand/shrink toggle and a full-screen button
   (Esc exits). Canvas-style apps like the polyarchy open at a usable
